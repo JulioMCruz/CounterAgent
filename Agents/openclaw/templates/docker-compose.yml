@@ -1,0 +1,109 @@
+services:
+  a0-orchestrator:
+    build: .
+    container_name: counteragent-a0-orchestrator
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+      - "127.0.0.1:5001:5000"
+    volumes:
+      - ./agents/a0-orchestrator/workspace:/root/.openclaw/workspace
+      - ./agents/a0-orchestrator/openclaw.json:/root/.openclaw/openclaw.json:ro
+    environment:
+      - AGENT_NAME=a0-orchestrator
+      - AGENT_ROLE=counteragent-app-facing-orchestrator
+      - A2A_PORT=5000
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENCLAW_TOKEN=${OPENCLAW_TOKEN_A0}
+    networks: [agents]
+
+  a1-monitor:
+    build: .
+    container_name: counteragent-a1-monitor
+    restart: unless-stopped
+    ports:
+      - "3002:3000"
+      - "127.0.0.1:5002:5000"
+    volumes:
+      - ./agents/a1-monitor/workspace:/root/.openclaw/workspace
+      - ./agents/a1-monitor/openclaw.json:/root/.openclaw/openclaw.json:ro
+    environment:
+      - AGENT_NAME=a1-monitor
+      - A2A_PORT=5000
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENCLAW_TOKEN=${OPENCLAW_TOKEN_A1}
+    networks: [agents]
+
+  a2-decision:
+    build: .
+    container_name: counteragent-a2-decision
+    restart: unless-stopped
+    ports:
+      - "3003:3000"
+      - "127.0.0.1:5003:5000"
+    volumes:
+      - ./agents/a2-decision/workspace:/root/.openclaw/workspace
+      - ./agents/a2-decision/openclaw.json:/root/.openclaw/openclaw.json:ro
+    environment:
+      - AGENT_NAME=a2-decision
+      - A2A_PORT=5000
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENCLAW_TOKEN=${OPENCLAW_TOKEN_A2}
+    networks: [agents]
+
+  a3-execution:
+    build: .
+    container_name: counteragent-a3-execution
+    restart: unless-stopped
+    ports:
+      - "3004:3000"
+      - "127.0.0.1:5004:5000"
+    volumes:
+      - ./agents/a3-execution/workspace:/root/.openclaw/workspace
+      - ./agents/a3-execution/openclaw.json:/root/.openclaw/openclaw.json:ro
+    environment:
+      - AGENT_NAME=a3-execution
+      - A2A_PORT=5000
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENCLAW_TOKEN=${OPENCLAW_TOKEN_A3}
+    networks: [agents]
+
+  a4-reporting:
+    build: .
+    container_name: counteragent-a4-reporting
+    restart: unless-stopped
+    ports:
+      - "3005:3000"
+      - "127.0.0.1:5005:5000"
+    volumes:
+      - ./agents/a4-reporting/workspace:/root/.openclaw/workspace
+      - ./agents/a4-reporting/openclaw.json:/root/.openclaw/openclaw.json:ro
+    environment:
+      - AGENT_NAME=a4-reporting
+      - A2A_PORT=5000
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENCLAW_TOKEN=${OPENCLAW_TOKEN_A4}
+    networks: [agents]
+
+  reverse-proxy:
+    image: caddy:2-alpine
+    container_name: counteragent-reverse-proxy
+    restart: unless-stopped
+    depends_on:
+      - a0-orchestrator
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [agents]
+
+networks:
+  agents:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,39 @@
+(counteragent_headers) {
+  encode gzip zstd
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "no-referrer-when-downgrade"
+  }
+}
+
+counteragent.perkos.xyz {
+  import counteragent_headers
+  reverse_proxy a0-orchestrator:3000
+}
+
+orchestrator.counteragent.perkos.xyz {
+  import counteragent_headers
+  reverse_proxy a0-orchestrator:3000
+}
+
+monitor.counteragent.perkos.xyz {
+  import counteragent_headers
+  reverse_proxy a1-monitor:3000
+}
+
+decision.counteragent.perkos.xyz {
+  import counteragent_headers
+  reverse_proxy a2-decision:3000
+}
+
+execution.counteragent.perkos.xyz {
+  import counteragent_headers
+  reverse_proxy a3-execution:3000
+}
+
+reporting.counteragent.perkos.xyz {
+  import counteragent_headers
+  reverse_proxy a4-reporting:3000
+}
