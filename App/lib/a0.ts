@@ -25,13 +25,17 @@ export type SessionResolveResponse =
     }
 
 export type OnboardingRequest = {
-  wallet: `0x${string}`
-  ensName: string
+  walletAddress: `0x${string}`
+  chainId: number
+  merchantName: string
+  ensLabel: string
+  ensName?: string
   fxThresholdBps: number
   riskTolerance: "Conservative" | "Moderate" | "Aggressive"
   preferredStablecoin: "USDC" | "EURC" | "USDT"
-  telegramChatId?: string
-  chainId: number
+  telegramChat?: string
+  registryTxHash?: `0x${string}`
+  idempotencyKey?: string
 }
 
 export async function resolveSession(input: SessionResolveRequest) {
