@@ -3,11 +3,20 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { Zap, Check, ArrowLeft } from "lucide-react"
+import { Zap, Check, ArrowLeft, Loader2 } from "lucide-react"
+import { stringToHex, padHex } from "viem"
+import { useAccount, useWriteContract } from "wagmi"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Slider } from "@/components/ui/slider"
+import { merchantRegistryAbi } from "@/lib/merchant-registry-abi"
+import {
+  merchantRegistryAddress,
+  merchantRegistryConfigured,
+  RiskTolerance,
+  stablecoinAddresses,
+} from "@/lib/registry"
 
 const steps = ["Connect", "Configure", "Active"]
 const riskLevels = ["Conservative", "Moderate", "Aggressive"] as const
@@ -15,16 +24,48 @@ const stablecoins = ["USDC", "EURC", "USDT"] as const
 
 export default function OnboardingPage() {
   const router = useRouter()
+  const { address } = useAccount()
+  const { writeContractAsync, isPending } = useWriteContract()
+
   const [currentStep, setCurrentStep] = useState(1)
   const [ensName, setEnsName] = useState("")
   const [threshold, setThreshold] = useState([0.5])
-  const [riskTolerance, setRiskTolerance] = useState<string>("Moderate")
+  const [riskTolerance, setRiskTolerance] = useState<typeof riskLevels[number]>("Moderate")
   const [telegramChat, setTelegramChat] = useState("")
-  const [preferredCoin, setPreferredCoin] = useState<string>("USDC")
+  const [preferredCoin, setPreferredCoin] = useState<typeof stablecoins[number]>("USDC")
+  const [error, setError] = useState<string | null>(null)
 
-  function handleActivate() {
-    setCurrentStep(2)
-    router.push("/dashboard")
+  async function handleActivate() {
+    setError(null)
+
+    if (!address) {
+      setError("Connect your wallet first.")
+      return
+    }
+    if (!merchantRegistryConfigured || !merchantRegistryAddress) {
+      setError("Merchant registry address is not configured.")
+      return
+    }
+
+    try {
+      const fxThresholdBps = Math.round(threshold[0] * 100) // 0.5% → 50 bps
+      const riskValue = RiskTolerance[riskTolerance]
+      const stablecoin = stablecoinAddresses[preferredCoin]
+      const chatBytes32 = padHex(stringToHex(telegramChat || ensName || address), { size: 32 })
+
+      await writeContractAsync({
+        address: merchantRegistryAddress,
+        abi: merchantRegistryAbi,
+        functionName: "register",
+        args: [fxThresholdBps, riskValue, stablecoin, chatBytes32],
+      })
+
+      setCurrentStep(2)
+      router.push("/dashboard")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Registration failed"
+      setError(message)
+    }
   }
 
   return (
@@ -38,6 +79,11 @@ export default function OnboardingPage() {
           <Zap className="h-5 w-5 text-primary" fill="currentColor" />
           <span className="text-lg font-bold tracking-tight">Counter Agent</span>
         </div>
+        {address && (
+          <span className="font-mono text-xs text-header-foreground/60">
+            {address.slice(0, 6)}…{address.slice(-4)}
+          </span>
+        )}
       </header>
 
       {/* Step Indicator */}
@@ -163,13 +209,27 @@ export default function OnboardingPage() {
           </CardContent>
         </Card>
 
+        {error && (
+          <p className="rounded-lg bg-destructive/10 px-4 py-2 text-center text-xs text-destructive">{error}</p>
+        )}
+
         {/* Activate */}
         <Button
           size="lg"
           onClick={handleActivate}
-          className="w-full rounded-xl bg-primary py-6 text-base font-bold text-primary-foreground shadow-lg hover:bg-primary/90 lg:mx-auto lg:max-w-md"
+          disabled={isPending || !address}
+          className="w-full rounded-xl bg-primary py-6 text-base font-bold text-primary-foreground shadow-lg hover:bg-primary/90 disabled:opacity-60 lg:mx-auto lg:max-w-md"
         >
-          Activate CounterAgent &rarr;
+          {isPending ? (
+            <span className="flex items-center justify-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Registering on-chain…
+            </span>
+          ) : !address ? (
+            "Connect wallet to activate"
+          ) : (
+            <>Activate CounterAgent &rarr;</>
+          )}
         </Button>
 
         <p className="text-center text-xs text-muted-foreground">

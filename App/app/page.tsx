@@ -1,6 +1,6 @@
 import Link from "next/link"
-import { Zap, ArrowRightLeft, FileText, Radio, MessageCircle, ChevronRight } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { Zap, ArrowRightLeft, FileText, Radio, MessageCircle } from "lucide-react"
+import { ConnectAndRoute } from "@/components/connect-and-route"
 
 export default function LandingPage() {
   return (
@@ -32,12 +32,9 @@ export default function LandingPage() {
           <p className="mt-4 max-w-lg text-pretty text-base leading-relaxed text-header-foreground/60 lg:mt-6 lg:text-lg">
             CounterAgent monitors FX rates and auto-converts your USDC &middot; EURC &middot; USDT &mdash; so you never lose value to bad timing.
           </p>
-          <Link href="/onboarding">
-            <Button size="lg" className="mt-8 w-full rounded-full bg-primary py-6 text-base font-bold text-primary-foreground shadow-lg hover:bg-primary/90 sm:w-auto sm:px-10 lg:mt-10">
-              Connect Wallet &amp; Get Started
-              <ChevronRight className="ml-1 h-4 w-4" />
-            </Button>
-          </Link>
+          <div className="mt-8 lg:mt-10">
+            <ConnectAndRoute />
+          </div>
 
           {/* Powered By */}
           <div className="mt-10 lg:mt-14">
