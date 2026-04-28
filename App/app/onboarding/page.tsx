@@ -4,7 +4,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Zap, Check, ArrowLeft, Loader2 } from "lucide-react"
-import { stringToHex, padHex } from "viem"
+import { keccak256, toBytes } from "viem"
 import { useAccount, useWriteContract } from "wagmi"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -22,6 +22,17 @@ import {
 const steps = ["Connect", "Configure", "Active"]
 const riskLevels = ["Conservative", "Moderate", "Aggressive"] as const
 const stablecoins = ["USDC", "EURC", "USDT"] as const
+const ensParent = "counteragent.eth"
+
+function sanitizeMerchantSlug(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\.counteragent\.eth$/, "")
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40)
+}
 
 export default function OnboardingPage() {
   const router = useRouter()
@@ -29,7 +40,7 @@ export default function OnboardingPage() {
   const { writeContractAsync, isPending } = useWriteContract()
 
   const [currentStep, setCurrentStep] = useState(1)
-  const [ensName, setEnsName] = useState("")
+  const [merchantSlug, setMerchantSlug] = useState("")
   const [threshold, setThreshold] = useState([0.5])
   const [riskTolerance, setRiskTolerance] = useState<typeof riskLevels[number]>("Moderate")
   const [telegramChat, setTelegramChat] = useState("")
@@ -43,6 +54,10 @@ export default function OnboardingPage() {
       setError("Connect your wallet first.")
       return
     }
+    if (!merchantSlug) {
+      setError("Choose a merchant subname first.")
+      return
+    }
     if (!merchantRegistryConfigured || !merchantRegistryAddress) {
       setError("Merchant registry address is not configured.")
       return
@@ -52,7 +67,8 @@ export default function OnboardingPage() {
       const fxThresholdBps = Math.round(threshold[0] * 100) // 0.5% → 50 bps
       const riskValue = RiskTolerance[riskTolerance]
       const stablecoin = stablecoinAddresses[preferredCoin]
-      const chatBytes32 = padHex(stringToHex(telegramChat || ensName || address), { size: 32 })
+      const merchantEnsName = `${merchantSlug}.${ensParent}`
+      const chatBytes32 = keccak256(toBytes(telegramChat || merchantEnsName || address))
 
       await writeContractAsync({
         address: merchantRegistryAddress,
@@ -115,16 +131,24 @@ export default function OnboardingPage() {
 
         {/* Desktop: two-column form layout */}
         <div className="flex flex-col gap-5 lg:grid lg:grid-cols-2 lg:gap-6">
-          {/* ENS Name */}
+          {/* Merchant ENS Subname */}
           <Card>
             <CardContent className="px-4 py-4">
-              <label className="mb-2 block text-sm font-semibold text-foreground">ENS Name</label>
-              <Input
-                placeholder="yourname.eth"
-                value={ensName}
-                onChange={(e) => setEnsName(e.target.value)}
-                className="bg-secondary"
-              />
+              <label className="mb-2 block text-sm font-semibold text-foreground">Merchant ENS Subname</label>
+              <div className="flex overflow-hidden rounded-md border border-input bg-secondary focus-within:ring-[3px] focus-within:ring-ring/50">
+                <Input
+                  placeholder="your-store"
+                  value={merchantSlug}
+                  onChange={(e) => setMerchantSlug(sanitizeMerchantSlug(e.target.value))}
+                  className="rounded-none border-0 bg-transparent focus-visible:ring-0"
+                />
+                <span className="flex items-center border-l border-border px-3 text-sm font-medium text-muted-foreground">
+                  .{ensParent}
+                </span>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                A1 ENS/Monitor will provision this subname and assign it to your connected wallet.
+              </p>
             </CardContent>
           </Card>
 
@@ -214,7 +238,7 @@ export default function OnboardingPage() {
         <Button
           size="lg"
           onClick={handleActivate}
-          disabled={isPending || !address}
+          disabled={isPending || !address || !merchantSlug}
           className="w-full rounded-xl bg-primary py-6 text-base font-bold text-primary-foreground shadow-lg hover:bg-primary/90 disabled:opacity-60 lg:mx-auto lg:max-w-md"
         >
           {isPending ? (
@@ -224,13 +248,15 @@ export default function OnboardingPage() {
             </span>
           ) : !address ? (
             "Connect wallet to activate"
+          ) : !merchantSlug ? (
+            "Choose your merchant subname"
           ) : (
-            <>Activate CounterAgent &rarr;</>
+            <>Activate {merchantSlug}.{ensParent} &rarr;</>
           )}
         </Button>
 
         <p className="text-center text-xs text-muted-foreground">
-          Stored in your ENS text records &mdash; self-custodial, no server.
+          ENS provisioning is coordinated by the Orchestrator and A1 ENS/Monitor agent.
         </p>
       </main>
     </div>
