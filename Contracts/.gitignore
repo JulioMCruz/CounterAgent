@@ -1,0 +1,13 @@
+# Foundry
+out/
+cache/
+broadcast/
+!broadcast/**/dry-run/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Editor
+.DS_Store
