@@ -22,45 +22,30 @@ Merchants accepting crypto payments leak value every day to poor FX timing:
 
 ## The Solution
 
-CounterAgent is a 5-agent autonomous system that watches your wallet, scores live FX rates, and converts stablecoins at the optimal moment via Uniswap v3 — with KeeperHub guaranteeing execution. You get a Telegram alert when it happens.
+CounterAgent is a 5-agent autonomous system that watches your wallet, scores live FX rates, and converts stablecoins at the optimal moment via Uniswap v3 — with KeeperHub guaranteeing execution and **x402 micropayments settling every inter-agent step on-chain**. You get a Telegram alert when it happens.
 
 1. **Agent 0 (Orchestrator)** — coordinates all agents, owns failure and recovery decisions
 2. **Agent 1 (Monitor)** — reads ENS config, watches wallet balances and Uniswap pool rates in real time
 3. **Agent 2 (Decision)** — runs hold/convert scoring logic weighted by FX spread, fee, and risk tolerance
-4. **Agent 3 (Execution)** — submits swaps via Uniswap v3 on Base; KeeperHub MCP handles gas, MEV protection, retries
+4. **Agent 3 (Execution)** — submits swaps via Uniswap v3 on Base; KeeperHub MCP handles gas, MEV protection, retries; x402 handles inter-agent payment settlement
 5. **Agent 4 (Reporting)** — logs every decision to 0G Storage; sends Telegram alert to merchant
 
 ---
 
 ## Architecture
 
-```
-New Payment (USDC · EURC · USDT on Base)
-        │
-        ▼
-Agent 0 — Orchestrator ◄──────────────────────────┐
-        │                                          │
-        ├──► Agent 1 (Monitor/ENS) ◄──────────────┤
-        │         │ fresh data                     │
-        │         ▼                                │
-        ├──► Agent 2 (Decision) ──► failure ───────┤
-        │         │ execute                        │
-        │         ▼                                │
-        │    Agent 3 (Execution)                   │
-        │    Uniswap v3 + KeeperHub MCP            │
-        │         │ success                        │
-        │         ▼                                │
-        │    Agent 4 (Reporting)                   │
-        │    0G Storage + Telegram ────────────────┘
-        │         │ complete
-        └─────────┘
-```
+![CounterAgent Architecture](./assets/architecture.svg)
 
 All agents are **bidirectional** — failures propagate back through the pipeline (Execution → Decision → Orchestrator) rather than silently dropping.
+
+Every inter-agent step settles via **x402 micropayments on Base** — agents pay each other on-chain, making the entire pipeline verifiably trustless with no off-chain coordination.
 
 ---
 
 ## Partner Integrations
+
+### x402 — Inter-Agent Payment Settlement
+Each agent-to-agent handoff in the pipeline is settled via x402 micropayments on Base. When Agent 2 signals Agent 3 to execute, that instruction carries an on-chain payment — no off-chain trust required. The full pipeline is economically self-contained and auditable end-to-end.
 
 ### ENS — Decentralised Config Store
 Each merchant stores treasury configuration in ENS text records — one setup step, fully self-custodial, no centralised database:
@@ -134,6 +119,7 @@ Merchants receive real-time notifications:
 | Agent Framework | Claude Agent SDK (Anthropic) |
 | AI Models | Claude Sonnet 4.6 |
 | Network | Base (Ethereum L2) |
+| Inter-Agent Payments | x402 micropayments (on-chain settlement) |
 | Swap Execution | Uniswap v3 |
 | Execution Reliability | KeeperHub MCP |
 | Config Store | ENS Text Records (on-chain) |
