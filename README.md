@@ -34,7 +34,47 @@ CounterAgent is a 5-agent autonomous system that watches your wallet, scores liv
 
 ## Architecture
 
-![CounterAgent Architecture](./assets/architecture.svg)
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#E8E4F8', 'primaryBorderColor': '#9B8EC4', 'primaryTextColor': '#231F20', 'lineColor': '#888888', 'secondaryColor': '#FFF9E0', 'tertiaryColor': '#E8F0FF'}}}%%
+
+flowchart TD
+    PAY["💳 Incoming Payment\nUSDC · EURC · USDT on Base"]
+
+    subgraph PIPELINE ["CounterAgent Pipeline"]
+        A0["🧠 AGENT 0 — Orchestrator\ncoordinates pipeline · owns failure & recovery"]
+        A1["👁 AGENT 1 — Monitor\nreads ENS config · watches balances + pool rates"]
+        A2["⚖️ AGENT 2 — Decision\nFX spread × fee × risk tolerance\n→ HOLD or CONVERT"]
+        A3["⚡ AGENT 3 — Execution\nswap via Uniswap v3\nKeeperHub: gas · MEV protection · retry"]
+        A4["📣 AGENT 4 — Reporting\nwrite to 0G Storage\nTelegram alert to merchant"]
+    end
+
+    ENS["📋 ENS Text Records\nfx_threshold · risk_tolerance\npreferred_stablecoin · telegram_chat_id"]
+    UNI["🦄 Uniswap v3\nEURC / USDT → USDC\nBase liquidity pools"]
+    KH["🔁 KeeperHub MCP\ngas estimation · MEV protection\nretry with exponential backoff"]
+    ZERO["🗄 0G Storage\nimmutable audit log\nFX rate · decision · tx hash · outcome"]
+    TG["📱 Telegram Bot API\n✅ swap executed · ⏸ hold · ⚠️ anomaly · 🛑 halt"]
+
+    BASE[["⬡ Base · Ethereum L2\nx402 on-chain settlement · Uniswap v3 · KeeperHub · ENS registry"]]
+
+    PAY --> A0
+    A0 --> A1
+    A0 --> A2
+    A1 -. fresh data .-> A2
+    A1 <-. reads config .-> ENS
+    A2 -- "x402 micropayment" --> A3
+    A2 -. failure .-> A0
+    A3 -- swap --> UNI
+    A3 --> KH
+    A3 -- "x402 micropayment" --> A4
+    A4 -- write --> ZERO
+    A4 -- alert --> TG
+    A4 -. complete .-> A0
+
+    UNI --- BASE
+    KH --- BASE
+    ENS --- BASE
+    ZERO --- BASE
+```
 
 All agents are **bidirectional** — failures propagate back through the pipeline (Execution → Decision → Orchestrator) rather than silently dropping.
 
@@ -235,7 +275,7 @@ Built at **ETHGlobal Open Agents 2026** — April 24 to May 3, 2026
 
 | Name | Role | Contact |
 |---|---|---|
-| Abena | Product & Research | [@abena_eth](https://twitter.com/abena_eth) · abena@bluewin.ch |
+| Abena | Product & Research | [@abena_eth](https://twitter.com/abena_eth) · abena@ethaccra.xyz |
 | Julio M Cruz | Engineering | [GitHub: JulioMCruz](https://github.com/JulioMCruz) |
 
 ---
@@ -245,3 +285,4 @@ Built at **ETHGlobal Open Agents 2026** — April 24 to May 3, 2026
 - Twitter/X: [@abena_eth](https://twitter.com/abena_eth)
 - GitHub: [JulioMCruz/CounterAgent](https://github.com/JulioMCruz/CounterAgent)
 - ETHGlobal: [Open Agents 2026](https://ethglobal.com/events/openagents)
+
