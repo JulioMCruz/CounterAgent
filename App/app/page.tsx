@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { Zap, ArrowRightLeft, FileText, Radio, MessageCircle } from "lucide-react"
 import { ConnectAndRoute } from "@/components/connect-and-route"
+import { SessionHeaderActions } from "@/components/session-header-actions"
 
 export default function LandingPage() {
   return (
@@ -11,9 +12,12 @@ export default function LandingPage() {
           <Zap className="h-5 w-5 text-primary lg:h-6 lg:w-6" fill="currentColor" />
           <span className="text-lg font-bold tracking-tight lg:text-xl">Counter Agent</span>
         </div>
-        <Link href="/onboarding" className="text-sm font-medium text-header-foreground/70 hover:text-header-foreground">
-          For Merchants
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link href="/onboarding" className="text-sm font-medium text-header-foreground/70 hover:text-header-foreground">
+            For Merchants
+          </Link>
+          <SessionHeaderActions />
+        </div>
       </header>
 
       {/* Hero */}
