@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Slider } from "@/components/ui/slider"
+import { SessionHeaderActions } from "@/components/session-header-actions"
 import { merchantRegistryAbi } from "@/lib/merchant-registry-abi"
 import {
   merchantRegistryAddress,
@@ -79,11 +80,7 @@ export default function OnboardingPage() {
           <Zap className="h-5 w-5 text-primary" fill="currentColor" />
           <span className="text-lg font-bold tracking-tight">Counter Agent</span>
         </div>
-        {address && (
-          <span className="font-mono text-xs text-header-foreground/60">
-            {address.slice(0, 6)}…{address.slice(-4)}
-          </span>
-        )}
+        <SessionHeaderActions />
       </header>
 
       {/* Step Indicator */}

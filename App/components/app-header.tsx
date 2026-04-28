@@ -1,6 +1,7 @@
 "use client"
 
 import { Zap } from "lucide-react"
+import { SessionHeaderActions } from "@/components/session-header-actions"
 
 interface AppHeaderProps {
   showStatus?: boolean
@@ -20,15 +21,18 @@ export function AppHeader({ showStatus = true, statusLabel = "Active", networkLa
       <div className="hidden items-center gap-2 lg:flex">
         <span className="text-sm font-medium text-header-foreground/70">Treasury Overview</span>
       </div>
-      {showStatus && (
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 rounded-full bg-header-foreground/10 px-2.5 py-1 text-xs font-medium">
-            <span className="h-1.5 w-1.5 rounded-full bg-success" />
-            <span>{statusLabel}</span>
-          </div>
-          <span className="text-xs font-medium text-header-foreground/70">{networkLabel}</span>
-        </div>
-      )}
+      <div className="flex items-center gap-3">
+        {showStatus && (
+          <>
+            <div className="flex items-center gap-1.5 rounded-full bg-header-foreground/10 px-2.5 py-1 text-xs font-medium">
+              <span className="h-1.5 w-1.5 rounded-full bg-success" />
+              <span>{statusLabel}</span>
+            </div>
+            <span className="hidden text-xs font-medium text-header-foreground/70 sm:inline">{networkLabel}</span>
+          </>
+        )}
+        <SessionHeaderActions />
+      </div>
     </header>
   )
 }
