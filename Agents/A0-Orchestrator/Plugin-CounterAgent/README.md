@@ -82,13 +82,21 @@ The plugin/service should:
 2. Validate wallet address, chain ID, and merchant metadata.
 3. Verify wallet ownership or signed payload before privileged actions.
 4. Check or coordinate `MerchantRegistry` state.
-5. Prepare ENS provisioning/update tasks for the Orchestrator.
+5. Call the Monitor agent service to provision ENS subnames.
 6. Return an idempotent onboarding status to the App.
-7. Hand off verified runtime config to Monitor when ready.
+7. Route the user to dashboard when onboarding is complete.
+
+When `MONITOR_AGENT_URL` is configured, `/onboarding/start` calls:
+
+```text
+POST <MONITOR_AGENT_URL>/ens/provision
+```
+
+If `MONITOR_AGENT_URL` is missing, the Orchestrator accepts the request but returns `ens.status: "monitor_agent_not_configured"`.
 
 ## Recommended implementation path
 
-For the hackathon, implement this first as a small HTTPS sidecar service that runs with the Orchestrator container.
+Implement this first as a small HTTPS sidecar service that runs with the Orchestrator container.
 
 Later, if deeper OpenClaw runtime integration is needed, this can become a formal OpenClaw plugin while keeping the same external API contract.
 

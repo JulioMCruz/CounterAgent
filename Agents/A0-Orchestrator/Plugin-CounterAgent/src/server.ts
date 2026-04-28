@@ -43,11 +43,17 @@ const sessionResolveSchema = z.object({
   chainId: z.number().int().positive()
 });
 
+const ensLabelPattern = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
 const onboardingRequestSchema = z.object({
   walletAddress: z.string().refine(isAddress, 'Invalid wallet address'),
   chainId: z.number().int().positive(),
   merchantName: z.string().min(1).max(120),
   ensName: z.string().min(1).max(255).optional(),
+  ensLabel: z.string().min(1).max(63).regex(ensLabelPattern).optional(),
+  fxThresholdBps: z.number().int().min(0).max(10_000).optional(),
+  riskTolerance: z.string().min(1).max(40).optional(),
+  preferredStablecoin: z.string().min(1).max(40).optional(),
   telegramChat: z.string().max(120).optional(),
   registryTxHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/).optional(),
   callbackUrl: z.string().url().optional(),
@@ -62,6 +68,8 @@ const corsOrigins = (process.env.CORS_ORIGIN ?? 'https://counteragent.netlify.ap
 const merchantRegistryAddress = process.env.MERCHANT_REGISTRY_ADDRESS as Address | undefined;
 const baseRpcUrl = process.env.BASE_RPC_URL || 'https://sepolia.base.org';
 const defaultChainId = Number(process.env.DEFAULT_CHAIN_ID ?? 84532);
+const monitorAgentUrl = process.env.MONITOR_AGENT_URL;
+const ensParentName = process.env.ENS_PARENT_NAME ?? 'counteragent.eth';
 
 const app = Fastify({ logger: true });
 
@@ -81,6 +89,15 @@ const registryClientFor = (chainId: number) =>
     chain: chainFor(chainId),
     transport: http(baseRpcUrl)
   });
+
+const labelFromEnsName = (ensName?: string) => {
+  if (!ensName) return undefined;
+  const normalized = ensName.toLowerCase().trim();
+  const suffix = `.${ensParentName}`;
+  if (!normalized.endsWith(suffix)) return undefined;
+  const label = normalized.slice(0, -suffix.length);
+  return ensLabelPattern.test(label) ? label : undefined;
+};
 
 app.get('/healthz', async () => ({ ok: true, status: 'live' }));
 
@@ -170,15 +187,73 @@ app.post('/onboarding/start', async (request, reply) => {
 
   // TODO: Verify wallet signature or SIWE proof.
   // TODO: Verify registryTxHash against Base when present.
-  // TODO: Coordinate MerchantRegistry + ENS provisioning through the Orchestrator runtime.
-  // TODO: Hand off verified config to Monitor.
 
-  return reply.code(202).send({
-    ok: true,
-    onboardingId,
-    status: 'accepted',
-    next: 'verify-registry'
-  });
+  const ensLabel = onboarding.ensLabel ?? labelFromEnsName(onboarding.ensName);
+
+  if (!ensLabel) {
+    return reply.code(400).send({
+      ok: false,
+      error: 'ens_label_required',
+      message: `Provide ensLabel or an ensName under ${ensParentName}`
+    });
+  }
+
+  if (!monitorAgentUrl) {
+    return reply.code(202).send({
+      ok: true,
+      onboardingId,
+      status: 'accepted',
+      next: 'ens-provisioning-pending',
+      ens: {
+        label: ensLabel,
+        name: `${ensLabel}.${ensParentName}`,
+        status: 'monitor_agent_not_configured'
+      }
+    });
+  }
+
+  try {
+    const response = await fetch(`${monitorAgentUrl.replace(/\/$/, '')}/ens/provision`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        label: ensLabel,
+        merchantWallet: onboarding.walletAddress,
+        fxThresholdBps: onboarding.fxThresholdBps ?? 50,
+        riskTolerance: onboarding.riskTolerance ?? 'moderate',
+        preferredStablecoin: onboarding.preferredStablecoin ?? 'USDC',
+        telegramChatId: onboarding.telegramChat ?? '',
+        registryAddress: merchantRegistryAddress ?? ''
+      })
+    });
+
+    const ens = await response.json().catch(() => ({}));
+
+    if (!response.ok || !ens.ok) {
+      request.log.error({ ens }, 'ENS provisioning rejected by Monitor');
+      return reply.code(502).send({
+        ok: false,
+        onboardingId,
+        error: 'ens_provision_failed',
+        ens
+      });
+    }
+
+    return reply.send({
+      ok: true,
+      onboardingId,
+      status: 'completed',
+      next: 'dashboard',
+      ens
+    });
+  } catch (error) {
+    request.log.error({ error }, 'Monitor ENS provisioning failed');
+    return reply.code(502).send({
+      ok: false,
+      onboardingId,
+      error: 'monitor_agent_unreachable'
+    });
+  }
 });
 
 await app.listen({ port, host: '0.0.0.0' });

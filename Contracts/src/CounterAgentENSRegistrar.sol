@@ -38,6 +38,9 @@ contract CounterAgentENSRegistrar is Initializable, OwnableUpgradeable, UUPSUpgr
 
     event ResolverUpdated(address indexed resolver);
     event ParentOwnerTransferred(address indexed newOwner);
+    event ProvisionerUpdated(address indexed provisioner, bool allowed);
+
+    mapping(address => bool) public provisioners;
 
     struct MerchantConfig {
         uint256 fxThresholdBps;
@@ -73,6 +76,11 @@ contract CounterAgentENSRegistrar is Initializable, OwnableUpgradeable, UUPSUpgr
         parentName = parentEnsName;
     }
 
+    modifier onlyProvisionerOrOwner() {
+        require(owner() == _msgSender() || provisioners[_msgSender()], "not provisioner");
+        _;
+    }
+
     function provisionMerchant(
         string calldata label,
         address merchant,
@@ -81,7 +89,7 @@ contract CounterAgentENSRegistrar is Initializable, OwnableUpgradeable, UUPSUpgr
         string calldata preferredStablecoin,
         string calldata telegramChatId,
         string calldata registryAddress
-    ) external onlyOwner returns (bytes32 node) {
+    ) external onlyProvisionerOrOwner returns (bytes32 node) {
         MerchantConfig memory config = MerchantConfig({
             fxThresholdBps: fxThresholdBps,
             riskTolerance: riskTolerance,
@@ -132,6 +140,12 @@ contract CounterAgentENSRegistrar is Initializable, OwnableUpgradeable, UUPSUpgr
         publicResolver.setText(node, "counteragent.telegram_chat_id", config.telegramChatId);
         publicResolver.setText(node, "counteragent.registry", config.registryAddress);
         publicResolver.setText(node, "counteragent.version", "1");
+    }
+
+    function setProvisioner(address provisioner, bool allowed) external onlyOwner {
+        require(provisioner != address(0), "provisioner required");
+        provisioners[provisioner] = allowed;
+        emit ProvisionerUpdated(provisioner, allowed);
     }
 
     function setPublicResolver(address resolver) external onlyOwner {

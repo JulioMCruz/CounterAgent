@@ -170,3 +170,10 @@ Responsibilities:
 - assign the subname to the connected merchant wallet
 - write CounterAgent ENS text records
 - allow controlled upgrades through the contract owner
+- allow the owner to grant/revoke provisioner permissions for an agent service
+
+Recommended runtime split:
+
+- owner: admin/upgrade authority
+- provisioner: agent service wallet allowed to create merchant subnames
+- merchant: connected user wallet that receives ownership of `<merchant>.counteragent.eth`

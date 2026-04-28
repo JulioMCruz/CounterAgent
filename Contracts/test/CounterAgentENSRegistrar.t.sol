@@ -53,6 +53,7 @@ contract CounterAgentENSRegistrarTest is Test {
     MockPublicResolver internal resolver;
     CounterAgentENSRegistrar internal registrar;
     address internal owner = address(0xA11CE);
+    address internal provisioner = address(0xA100);
     address internal merchant = address(0xB0B);
 
     function setUp() public {
@@ -91,8 +92,34 @@ contract CounterAgentENSRegistrarTest is Test {
         assertEq(resolver.text(node, "counteragent.telegram_chat_id"), "@merchant");
     }
 
-    function testOnlyOwnerCanProvision() public {
-        vm.expectRevert();
+    function testProvisionerCanProvision() public {
+        vm.prank(owner);
+        registrar.setProvisioner(provisioner, true);
+
+        vm.prank(provisioner);
+        bytes32 node = registrar.provisionMerchant(
+            "agent-store", merchant, 75, "balanced", "USDC", "@agent", "0xd532D7C9Ddc28d16601FaA5Cc6F54cDABb703C28"
+        );
+
+        assertEq(registry.owner(node), merchant);
+        assertEq(resolver.addr(node), merchant);
+        assertEq(resolver.text(node, "counteragent.fx_threshold_bps"), "75");
+    }
+
+    function testOwnerCanRevokeProvisioner() public {
+        vm.prank(owner);
+        registrar.setProvisioner(provisioner, true);
+
+        vm.prank(owner);
+        registrar.setProvisioner(provisioner, false);
+
+        vm.prank(provisioner);
+        vm.expectRevert("not provisioner");
+        registrar.provisionMerchant("revoked", merchant, 50, "moderate", "USDC", "@merchant", "registry");
+    }
+
+    function testOnlyProvisionerOrOwnerCanProvision() public {
+        vm.expectRevert("not provisioner");
         registrar.provisionMerchant("bad", merchant, 50, "moderate", "USDC", "@merchant", "registry");
     }
 }
