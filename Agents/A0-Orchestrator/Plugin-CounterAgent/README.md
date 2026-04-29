@@ -9,6 +9,7 @@ This folder demonstrates where the App-facing integration code should live for t
 ```text
 POST <ORCHESTRATOR_URL>/session/resolve
 POST <ORCHESTRATOR_URL>/onboarding/start
+POST <ORCHESTRATOR_URL>/workflow/evaluate
 ```
 
 Local development default:
@@ -16,6 +17,7 @@ Local development default:
 ```text
 POST http://localhost:8787/session/resolve
 POST http://localhost:8787/onboarding/start
+POST http://localhost:8787/workflow/evaluate
 ```
 
 ## Session resolution
@@ -103,6 +105,43 @@ POST <REPORTING_AGENT_URL>/reports/publish
 
 The response includes `report.storageUri`, which is expected to be `0g://<rootHash>` when the Reporting agent runs with `REPORT_STORAGE_MODE=0g`.
 
+## Treasury workflow evaluation
+
+The App or an operator can ask the Orchestrator to run a complete dry-run treasury workflow:
+
+```http
+POST /workflow/evaluate
+```
+
+Flow:
+
+```text
+Orchestrator
+  -> Gensyn AXL Agent Messaging plugin /axl/messages for structured inter-agent envelopes
+  -> Uniswap Swap Execution plugin /execution/quote
+  -> Decision Scoring plugin /decision/evaluate
+  -> Uniswap Swap Execution plugin /execution/execute
+  -> Reporting plugin /reports/publish
+```
+
+Example request:
+
+```json
+{
+  "walletAddress": "0x0000000000000000000000000000000000000001",
+  "chainId": 8453,
+  "merchantEns": "demo.counteragent.eth",
+  "fromToken": "EURC",
+  "toToken": "USDC",
+  "amount": "800",
+  "fxThresholdBps": 50,
+  "riskTolerance": "moderate",
+  "baselineRate": 1.07
+}
+```
+
+When `DECISION_AGENT_URL`, `EXECUTION_AGENT_URL`, and `REPORTING_AGENT_URL` are configured, the response includes `quote`, `decision`, `execution`, and `report` objects. When `GENSYN_AXL_MESSAGING_URL` is configured, A0 also emits sponsor-visible AXL-style message envelopes for quote, decision, and execution handoffs. The Uniswap plugin defaults to dry-run execution, so `transactionHash` remains `null` until live execution is explicitly enabled.
+
 ## Recommended implementation path
 
 Implement this first as a small HTTPS sidecar service that runs with the Orchestrator container.
@@ -120,6 +159,6 @@ Later, if deeper runtime integration is needed, this can become a formal agent p
 
 ## Files
 
-- `src/server.ts` — service with `GET /healthz`, `POST /session/resolve`, and `POST /onboarding/start`.
+- `src/server.ts` — service with `GET /healthz`, `POST /session/resolve`, `POST /onboarding/start`, and `POST /workflow/evaluate`.
 - `package.json` — dependencies and scripts for local development.
 - `.env.example` — safe placeholders only.
