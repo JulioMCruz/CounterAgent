@@ -1,7 +1,7 @@
 export const orchestratorUrl =
   process.env.NEXT_PUBLIC_ORCHESTRATOR_URL ||
   process.env.NEXT_PUBLIC_A0_URL ||
-  "https://orchestrator.counteragent.perkos.xyz"
+  "http://localhost:8787"
 
 export const a0Url = orchestratorUrl
 
@@ -38,6 +38,25 @@ export type OnboardingRequest = {
   idempotencyKey?: string
 }
 
+export type OnboardingResponse = {
+  ok: boolean
+  onboardingId?: string
+  status?: string
+  next?: string
+  ens?: unknown
+  report?: {
+    ok?: boolean
+    reportId?: string
+    backend?: string
+    contentHash?: string
+    storageUri?: string
+    rootHash?: string
+    transactionHash?: string
+  } | null
+  reportWarning?: string
+  error?: string
+}
+
 export async function resolveSession(input: SessionResolveRequest) {
   const res = await fetch(`${orchestratorUrl}/session/resolve`, {
     method: "POST",
@@ -63,5 +82,5 @@ export async function startOnboarding(input: OnboardingRequest) {
     throw new Error(`Orchestrator onboarding failed: ${res.status}`)
   }
 
-  return res.json()
+  return res.json() as Promise<OnboardingResponse>
 }

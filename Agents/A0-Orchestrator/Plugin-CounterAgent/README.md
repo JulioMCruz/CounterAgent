@@ -2,13 +2,13 @@
 
 Reference implementation for the Orchestrator service API used by the App.
 
-This folder demonstrates where the App-facing integration code should live for the Orchestrator. The goal is to expose a stable HTTPS contract that the App can call without exposing OpenClaw tokens or internal agent ports.
+This folder demonstrates where the App-facing integration code should live for the Orchestrator. The goal is to expose a stable HTTPS contract that the App can call without exposing runtime credentials or internal agent ports.
 
 ## Public contract
 
 ```text
-POST https://orchestrator.counteragent.perkos.xyz/session/resolve
-POST https://orchestrator.counteragent.perkos.xyz/onboarding/start
+POST <ORCHESTRATOR_URL>/session/resolve
+POST <ORCHESTRATOR_URL>/onboarding/start
 ```
 
 Local development default:
@@ -83,8 +83,9 @@ The plugin/service should:
 3. Verify wallet ownership or signed payload before privileged actions.
 4. Check or coordinate `MerchantRegistry` state.
 5. Call the Monitor agent service to provision ENS subnames.
-6. Return an idempotent onboarding status to the App.
-7. Route the user to dashboard when onboarding is complete.
+6. Call the Reporting agent service to publish an onboarding report artifact.
+7. Return an idempotent onboarding status, ENS result, and report pointer to the App.
+8. Route the user to dashboard when onboarding is complete.
 
 When `MONITOR_AGENT_URL` is configured, `/onboarding/start` calls:
 
@@ -94,16 +95,24 @@ POST <MONITOR_AGENT_URL>/ens/provision
 
 If `MONITOR_AGENT_URL` is missing, the Orchestrator accepts the request but returns `ens.status: "monitor_agent_not_configured"`.
 
+When `REPORTING_AGENT_URL` is configured, `/onboarding/start` calls:
+
+```text
+POST <REPORTING_AGENT_URL>/reports/publish
+```
+
+The response includes `report.storageUri`, which is expected to be `0g://<rootHash>` when the Reporting agent runs with `REPORT_STORAGE_MODE=0g`.
+
 ## Recommended implementation path
 
 Implement this first as a small HTTPS sidecar service that runs with the Orchestrator container.
 
-Later, if deeper OpenClaw runtime integration is needed, this can become a formal OpenClaw plugin while keeping the same external API contract.
+Later, if deeper runtime integration is needed, this can become a formal agent plugin while keeping the same external API contract.
 
 ## Security rules
 
 - HTTPS only in deployed environments.
-- Never send OpenClaw tokens to the browser.
+- Never send runtime credentials to the browser.
 - Require a wallet signature, SIWE-style proof, or server-side signed request before privileged operations.
 - Keep requests idempotent by wallet address + chain ID or an explicit idempotency key.
 - Validate `registryTxHash` on Base before trusting it.
@@ -111,6 +120,6 @@ Later, if deeper OpenClaw runtime integration is needed, this can become a forma
 
 ## Files
 
-- `src/server.ts` — service skeleton with `GET /healthz`, `POST /session/resolve`, and `POST /onboarding/start`.
+- `src/server.ts` — service with `GET /healthz`, `POST /session/resolve`, and `POST /onboarding/start`.
 - `package.json` — dependencies and scripts for local development.
 - `.env.example` — safe placeholders only.

@@ -49,10 +49,12 @@ export default function OnboardingPage() {
   const [preferredCoin, setPreferredCoin] = useState<typeof stablecoins[number]>("USDC")
   const [error, setError] = useState<string | null>(null)
   const [statusText, setStatusText] = useState<string | null>(null)
+  const [reportUri, setReportUri] = useState<string | null>(null)
 
   async function handleActivate() {
     setError(null)
     setStatusText(null)
+    setReportUri(null)
 
     if (!address) {
       setError("Connect your wallet first.")
@@ -83,7 +85,7 @@ export default function OnboardingPage() {
       })
 
       setStatusText("Provisioning ENS records through the Orchestrator…")
-      await startOnboarding({
+      const onboarding = await startOnboarding({
         walletAddress: address,
         chainId: activeChain.id,
         merchantName: merchantSlug,
@@ -97,8 +99,20 @@ export default function OnboardingPage() {
         idempotencyKey: `${activeChain.id}:${address.toLowerCase()}:${merchantSlug}`,
       })
 
+      if (!onboarding.ok) {
+        throw new Error(onboarding.error || "Orchestrator onboarding failed")
+      }
+
+      if (onboarding.report?.storageUri) {
+        setReportUri(onboarding.report.storageUri)
+      }
+
       setCurrentStep(2)
-      setStatusText("Treasury config active. Opening dashboard…")
+      setStatusText(
+        onboarding.report?.storageUri
+          ? `Treasury config active. Report stored at ${onboarding.report.storageUri}. Opening dashboard…`
+          : "Treasury config active. Opening dashboard…"
+      )
       router.push("/dashboard")
     } catch (e) {
       const message = e instanceof Error ? e.message : "Registration failed"
@@ -253,6 +267,12 @@ export default function OnboardingPage() {
 
         {statusText && (
           <p className="rounded-lg bg-primary/10 px-4 py-2 text-center text-xs font-medium text-primary">{statusText}</p>
+        )}
+
+        {reportUri && (
+          <p className="rounded-lg bg-success/10 px-4 py-2 text-center text-xs font-medium text-success">
+            A4 report pointer: {reportUri}
+          </p>
         )}
 
         {error && (
