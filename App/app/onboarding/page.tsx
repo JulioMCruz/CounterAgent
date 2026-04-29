@@ -205,7 +205,7 @@ export default function OnboardingPage() {
         <SessionHeaderActions />
       </header>
 
-      <div className="fixed bottom-3 left-3 z-50 lg:hidden">
+      <div className="fixed bottom-3 left-3 z-50 xl:hidden">
         <BuildBadge />
       </div>
 
