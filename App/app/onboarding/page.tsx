@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Zap, Check, ArrowLeft, Loader2 } from "lucide-react"
 import { keccak256, toBytes } from "viem"
-import { useAccount, useWriteContract } from "wagmi"
+import { readContract } from "wagmi/actions"
+import { useAccount, useSignTypedData } from "wagmi"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -13,6 +14,7 @@ import { Slider } from "@/components/ui/slider"
 import { SessionHeaderActions } from "@/components/session-header-actions"
 import { startOnboarding } from "@/lib/a0"
 import { merchantRegistryAbi } from "@/lib/merchant-registry-abi"
+import { wagmiConfig } from "@/lib/wagmi"
 import {
   activeChain,
   merchantRegistryAddress,
@@ -25,6 +27,17 @@ const steps = ["Connect", "Configure", "Active"]
 const riskLevels = ["Conservative", "Moderate", "Aggressive"] as const
 const stablecoins = ["USDC", "EURC", "USDT"] as const
 const ensParent = "counteragent.eth"
+const delegatedRegistrationTypes = {
+  Register: [
+    { name: "merchant", type: "address" },
+    { name: "fxThresholdBps", type: "uint16" },
+    { name: "risk", type: "uint8" },
+    { name: "preferredStablecoin", type: "address" },
+    { name: "telegramChatId", type: "bytes32" },
+    { name: "nonce", type: "uint256" },
+    { name: "deadline", type: "uint256" },
+  ],
+} as const
 
 function sanitizeMerchantSlug(value: string) {
   return value
@@ -39,7 +52,7 @@ function sanitizeMerchantSlug(value: string) {
 export default function OnboardingPage() {
   const router = useRouter()
   const { address } = useAccount()
-  const { writeContractAsync, isPending } = useWriteContract()
+  const { signTypedDataAsync, isPending: isSigning } = useSignTypedData()
 
   const [currentStep, setCurrentStep] = useState(1)
   const [merchantSlug, setMerchantSlug] = useState("")
@@ -50,6 +63,7 @@ export default function OnboardingPage() {
   const [error, setError] = useState<string | null>(null)
   const [statusText, setStatusText] = useState<string | null>(null)
   const [reportUri, setReportUri] = useState<string | null>(null)
+  const [isActivating, setIsActivating] = useState(false)
 
   async function handleActivate() {
     setError(null)
@@ -76,15 +90,39 @@ export default function OnboardingPage() {
       const merchantEnsName = `${merchantSlug}.${ensParent}`
       const chatBytes32 = keccak256(toBytes(telegramChat || merchantEnsName || address))
 
-      setStatusText("Registering treasury config on Base Sepolia…")
-      const registryTxHash = await writeContractAsync({
+      setIsActivating(true)
+      setStatusText("Preparing delegated registry authorization…")
+      const nonce = await readContract(wagmiConfig, {
         address: merchantRegistryAddress,
         abi: merchantRegistryAbi,
-        functionName: "register",
-        args: [fxThresholdBps, riskValue, stablecoin, chatBytes32],
+        functionName: "nonces",
+        args: [address],
       })
 
-      setStatusText("Provisioning ENS records through the Orchestrator…")
+      const registrationDeadline = Math.floor(Date.now() / 1000) + 15 * 60
+
+      setStatusText("Sign the CounterAgent registration authorization…")
+      const registrationSignature = await signTypedDataAsync({
+        domain: {
+          name: "CounterAgent MerchantRegistry",
+          version: "1",
+          chainId: activeChain.id,
+          verifyingContract: merchantRegistryAddress,
+        },
+        types: delegatedRegistrationTypes,
+        primaryType: "Register",
+        message: {
+          merchant: address,
+          fxThresholdBps,
+          risk: riskValue,
+          preferredStablecoin: stablecoin,
+          telegramChatId: chatBytes32,
+          nonce,
+          deadline: BigInt(registrationDeadline),
+        },
+      })
+
+      setStatusText("A0 is registering your treasury and provisioning ENS…")
       const onboarding = await startOnboarding({
         walletAddress: address,
         chainId: activeChain.id,
@@ -95,7 +133,8 @@ export default function OnboardingPage() {
         riskTolerance,
         preferredStablecoin: preferredCoin,
         telegramChat,
-        registryTxHash,
+        registrationSignature,
+        registrationDeadline,
         idempotencyKey: `${activeChain.id}:${address.toLowerCase()}:${merchantSlug}`,
       })
 
@@ -117,6 +156,8 @@ export default function OnboardingPage() {
     } catch (e) {
       const message = e instanceof Error ? e.message : "Registration failed"
       setError(message)
+    } finally {
+      setIsActivating(false)
     }
   }
 
@@ -283,10 +324,10 @@ export default function OnboardingPage() {
         <Button
           size="lg"
           onClick={handleActivate}
-          disabled={isPending || !address || !merchantSlug}
+          disabled={isActivating || isSigning || !address || !merchantSlug}
           className="w-full rounded-xl bg-primary py-6 text-base font-bold text-primary-foreground shadow-lg hover:bg-primary/90 disabled:opacity-60 lg:mx-auto lg:max-w-md"
         >
-          {isPending ? (
+          {isActivating || isSigning ? (
             <span className="flex items-center justify-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
               Activating treasury…

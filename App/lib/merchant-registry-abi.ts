@@ -13,6 +13,21 @@ export const merchantRegistryAbi = [
   },
   {
     type: "function",
+    name: "registerFor",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "merchant", type: "address" },
+      { name: "fxThresholdBps", type: "uint16" },
+      { name: "risk", type: "uint8" },
+      { name: "preferredStablecoin", type: "address" },
+      { name: "telegramChatId", type: "bytes32" },
+      { name: "deadline", type: "uint256" },
+      { name: "signature", type: "bytes" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
     name: "update",
     stateMutability: "nonpayable",
     inputs: [
@@ -54,5 +69,12 @@ export const merchantRegistryAbi = [
     stateMutability: "view",
     inputs: [{ name: "merchant", type: "address" }],
     outputs: [{ type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "nonces",
+    stateMutability: "view",
+    inputs: [{ name: "merchant", type: "address" }],
+    outputs: [{ type: "uint256" }],
   },
 ] as const

@@ -35,6 +35,8 @@ export type OnboardingRequest = {
   preferredStablecoin: "USDC" | "EURC" | "USDT"
   telegramChat?: string
   registryTxHash?: `0x${string}`
+  registrationSignature?: `0x${string}`
+  registrationDeadline?: number
   idempotencyKey?: string
 }
 
@@ -53,6 +55,7 @@ export type OnboardingResponse = {
   onboardingId?: string
   status?: string
   next?: string
+  registryTxHash?: `0x${string}`
   ens?: unknown
   report?: ReportPointer | null
   reportWarning?: string
