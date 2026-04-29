@@ -38,21 +38,78 @@ export type OnboardingRequest = {
   idempotencyKey?: string
 }
 
+export type ReportPointer = {
+  ok?: boolean
+  reportId?: string
+  backend?: string
+  contentHash?: string
+  storageUri?: string
+  rootHash?: string
+  transactionHash?: string
+}
+
 export type OnboardingResponse = {
   ok: boolean
   onboardingId?: string
   status?: string
   next?: string
   ens?: unknown
-  report?: {
+  report?: ReportPointer | null
+  reportWarning?: string
+  error?: string
+}
+
+export type WorkflowEvaluateRequest = {
+  workflowId?: string
+  merchantEns?: string
+  walletAddress: `0x${string}`
+  chainId?: number
+  fromToken: "USDC" | "EURC" | "USDT"
+  toToken?: "USDC" | "EURC" | "USDT"
+  amount: string
+  fxThresholdBps?: number
+  riskTolerance?: "conservative" | "moderate" | "aggressive" | "Conservative" | "Moderate" | "Aggressive"
+  slippageBps?: number
+  baselineRate?: number
+  dryRunRate?: number
+  idempotencyKey?: string
+  metadata?: Record<string, unknown>
+}
+
+export type WorkflowEvaluateResponse = {
+  ok: boolean
+  workflowId?: string
+  status?: string
+  quote?: {
     ok?: boolean
-    reportId?: string
-    backend?: string
-    contentHash?: string
-    storageUri?: string
-    rootHash?: string
-    transactionHash?: string
-  } | null
+    quote?: {
+      provider?: string
+      rate?: number
+      baselineRate?: number
+      feeBps?: number
+      priceImpactBps?: number
+      quoteId?: string
+      [key: string]: unknown
+    }
+    [key: string]: unknown
+  }
+  decision?: {
+    ok?: boolean
+    decision?: {
+      action?: "HOLD" | "CONVERT"
+      confidence?: number
+      reason?: string
+      [key: string]: unknown
+    }
+    [key: string]: unknown
+  }
+  execution?: {
+    ok?: boolean
+    status?: string
+    transactionHash?: string | null
+    [key: string]: unknown
+  }
+  report?: ReportPointer | null
   reportWarning?: string
   error?: string
 }
@@ -83,4 +140,18 @@ export async function startOnboarding(input: OnboardingRequest) {
   }
 
   return res.json() as Promise<OnboardingResponse>
+}
+
+export async function evaluateWorkflow(input: WorkflowEvaluateRequest) {
+  const res = await fetch(`${orchestratorUrl}/workflow/evaluate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  })
+
+  if (!res.ok) {
+    throw new Error(`Orchestrator workflow failed: ${res.status}`)
+  }
+
+  return res.json() as Promise<WorkflowEvaluateResponse>
 }
