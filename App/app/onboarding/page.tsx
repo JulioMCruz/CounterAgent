@@ -11,8 +11,10 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Slider } from "@/components/ui/slider"
 import { SessionHeaderActions } from "@/components/session-header-actions"
+import { startOnboarding } from "@/lib/a0"
 import { merchantRegistryAbi } from "@/lib/merchant-registry-abi"
 import {
+  activeChain,
   merchantRegistryAddress,
   merchantRegistryConfigured,
   RiskTolerance,
@@ -46,9 +48,13 @@ export default function OnboardingPage() {
   const [telegramChat, setTelegramChat] = useState("")
   const [preferredCoin, setPreferredCoin] = useState<typeof stablecoins[number]>("USDC")
   const [error, setError] = useState<string | null>(null)
+  const [statusText, setStatusText] = useState<string | null>(null)
+  const [reportUri, setReportUri] = useState<string | null>(null)
 
   async function handleActivate() {
     setError(null)
+    setStatusText(null)
+    setReportUri(null)
 
     if (!address) {
       setError("Connect your wallet first.")
@@ -70,14 +76,43 @@ export default function OnboardingPage() {
       const merchantEnsName = `${merchantSlug}.${ensParent}`
       const chatBytes32 = keccak256(toBytes(telegramChat || merchantEnsName || address))
 
-      await writeContractAsync({
+      setStatusText("Registering treasury config on Base Sepolia…")
+      const registryTxHash = await writeContractAsync({
         address: merchantRegistryAddress,
         abi: merchantRegistryAbi,
         functionName: "register",
         args: [fxThresholdBps, riskValue, stablecoin, chatBytes32],
       })
 
+      setStatusText("Provisioning ENS records through the Orchestrator…")
+      const onboarding = await startOnboarding({
+        walletAddress: address,
+        chainId: activeChain.id,
+        merchantName: merchantSlug,
+        ensLabel: merchantSlug,
+        ensName: merchantEnsName,
+        fxThresholdBps,
+        riskTolerance,
+        preferredStablecoin: preferredCoin,
+        telegramChat,
+        registryTxHash,
+        idempotencyKey: `${activeChain.id}:${address.toLowerCase()}:${merchantSlug}`,
+      })
+
+      if (!onboarding.ok) {
+        throw new Error(onboarding.error || "Orchestrator onboarding failed")
+      }
+
+      if (onboarding.report?.storageUri) {
+        setReportUri(onboarding.report.storageUri)
+      }
+
       setCurrentStep(2)
+      setStatusText(
+        onboarding.report?.storageUri
+          ? `Treasury config active. Report stored at ${onboarding.report.storageUri}. Opening dashboard…`
+          : "Treasury config active. Opening dashboard…"
+      )
       router.push("/dashboard")
     } catch (e) {
       const message = e instanceof Error ? e.message : "Registration failed"
@@ -230,6 +265,16 @@ export default function OnboardingPage() {
           </CardContent>
         </Card>
 
+        {statusText && (
+          <p className="rounded-lg bg-primary/10 px-4 py-2 text-center text-xs font-medium text-primary">{statusText}</p>
+        )}
+
+        {reportUri && (
+          <p className="rounded-lg bg-success/10 px-4 py-2 text-center text-xs font-medium text-success">
+            A4 report pointer: {reportUri}
+          </p>
+        )}
+
         {error && (
           <p className="rounded-lg bg-destructive/10 px-4 py-2 text-center text-xs text-destructive">{error}</p>
         )}
@@ -244,7 +289,7 @@ export default function OnboardingPage() {
           {isPending ? (
             <span className="flex items-center justify-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Registering on-chain…
+              Activating treasury…
             </span>
           ) : !address ? (
             "Connect wallet to activate"
@@ -256,7 +301,7 @@ export default function OnboardingPage() {
         </Button>
 
         <p className="text-center text-xs text-muted-foreground">
-          ENS provisioning is coordinated by the Orchestrator and A1 ENS/Monitor agent.
+          Execution settings are stored in the Base Sepolia registry. ENS records mirror public agent-discovery config.
         </p>
       </main>
     </div>

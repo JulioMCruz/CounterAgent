@@ -69,6 +69,7 @@ const merchantRegistryAddress = process.env.MERCHANT_REGISTRY_ADDRESS as Address
 const baseRpcUrl = process.env.BASE_RPC_URL || 'https://sepolia.base.org';
 const defaultChainId = Number(process.env.DEFAULT_CHAIN_ID ?? 84532);
 const monitorAgentUrl = process.env.MONITOR_AGENT_URL;
+const reportingAgentUrl = process.env.REPORTING_AGENT_URL;
 const ensParentName = process.env.ENS_PARENT_NAME ?? 'counteragent.eth';
 
 const app = Fastify({ logger: true });
@@ -99,7 +100,55 @@ const labelFromEnsName = (ensName?: string) => {
   return ensLabelPattern.test(label) ? label : undefined;
 };
 
-app.get('/healthz', async () => ({ ok: true, status: 'live' }));
+app.get('/healthz', async () => ({
+  ok: true,
+  status: 'live',
+  agents: {
+    monitorConfigured: Boolean(monitorAgentUrl),
+    reportingConfigured: Boolean(reportingAgentUrl)
+  }
+}));
+
+async function publishOnboardingReport(input: {
+  onboardingId: string;
+  ensName: string;
+  walletAddress: string;
+  registryTxHash?: string;
+  fxThresholdBps?: number;
+  riskTolerance?: string;
+  preferredStablecoin?: string;
+  ens: unknown;
+}) {
+  if (!reportingAgentUrl) return null;
+
+  const response = await fetch(`${reportingAgentUrl.replace(/\/$/, '')}/reports/publish`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      reportId: input.onboardingId.replace(/[^a-zA-Z0-9._:-]/g, '-').slice(0, 120),
+      merchantEns: input.ensName,
+      merchantWallet: input.walletAddress,
+      decision: 'onboarding-complete',
+      summary: 'Merchant treasury onboarding completed through Orchestrator and ENS Monitor.',
+      transactionHash: input.registryTxHash,
+      executionAgent: 'A0-Orchestrator',
+      metadata: {
+        fxThresholdBps: input.fxThresholdBps,
+        riskTolerance: input.riskTolerance,
+        preferredStablecoin: input.preferredStablecoin,
+        ens: input.ens
+      }
+    })
+  });
+
+  const report = await response.json().catch(() => ({}));
+
+  if (!response.ok || !report.ok) {
+    throw new Error('report_publish_failed');
+  }
+
+  return report;
+}
 
 app.post('/session/resolve', async (request, reply) => {
   const parsed = sessionResolveSchema.safeParse(request.body);
@@ -239,12 +288,34 @@ app.post('/onboarding/start', async (request, reply) => {
       });
     }
 
+    const ensName = `${ensLabel}.${ensParentName}`;
+    let report: unknown = null;
+    let reportWarning: string | undefined;
+
+    try {
+      report = await publishOnboardingReport({
+        onboardingId,
+        ensName,
+        walletAddress: onboarding.walletAddress,
+        registryTxHash: onboarding.registryTxHash,
+        fxThresholdBps: onboarding.fxThresholdBps,
+        riskTolerance: onboarding.riskTolerance,
+        preferredStablecoin: onboarding.preferredStablecoin,
+        ens
+      });
+    } catch (error) {
+      request.log.error({ error }, 'A4 report publish failed');
+      reportWarning = 'report_publish_failed';
+    }
+
     return reply.send({
       ok: true,
       onboardingId,
       status: 'completed',
       next: 'dashboard',
-      ens
+      ens,
+      report,
+      reportWarning
     });
   } catch (error) {
     request.log.error({ error }, 'Monitor ENS provisioning failed');

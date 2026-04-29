@@ -1,7 +1,7 @@
 export const orchestratorUrl =
   process.env.NEXT_PUBLIC_ORCHESTRATOR_URL ||
   process.env.NEXT_PUBLIC_A0_URL ||
-  "https://orchestrator.counteragent.perkos.xyz"
+  "http://localhost:8787"
 
 export const a0Url = orchestratorUrl
 
@@ -25,13 +25,36 @@ export type SessionResolveResponse =
     }
 
 export type OnboardingRequest = {
-  wallet: `0x${string}`
-  ensName: string
+  walletAddress: `0x${string}`
+  chainId: number
+  merchantName: string
+  ensLabel: string
+  ensName?: string
   fxThresholdBps: number
   riskTolerance: "Conservative" | "Moderate" | "Aggressive"
   preferredStablecoin: "USDC" | "EURC" | "USDT"
-  telegramChatId?: string
-  chainId: number
+  telegramChat?: string
+  registryTxHash?: `0x${string}`
+  idempotencyKey?: string
+}
+
+export type OnboardingResponse = {
+  ok: boolean
+  onboardingId?: string
+  status?: string
+  next?: string
+  ens?: unknown
+  report?: {
+    ok?: boolean
+    reportId?: string
+    backend?: string
+    contentHash?: string
+    storageUri?: string
+    rootHash?: string
+    transactionHash?: string
+  } | null
+  reportWarning?: string
+  error?: string
 }
 
 export async function resolveSession(input: SessionResolveRequest) {
@@ -59,5 +82,5 @@ export async function startOnboarding(input: OnboardingRequest) {
     throw new Error(`Orchestrator onboarding failed: ${res.status}`)
   }
 
-  return res.json()
+  return res.json() as Promise<OnboardingResponse>
 }
