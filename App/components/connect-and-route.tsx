@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { DynamicWidget } from "@dynamic-labs/sdk-react-core"
-import { useAccount, useReadContract } from "wagmi"
+import { useAccount, useChainId, useReadContract, useSwitchChain } from "wagmi"
 import { resolveSession } from "@/lib/a0"
 import { merchantRegistryAbi } from "@/lib/merchant-registry-abi"
 import { activeChain, merchantRegistryAddress, merchantRegistryConfigured } from "@/lib/registry"
@@ -13,18 +13,53 @@ const dynamicConfigured = Boolean(process.env.NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID
 export function ConnectAndRoute() {
   const router = useRouter()
   const { address } = useAccount()
+  const chainId = useChainId()
+  const { switchChainAsync } = useSwitchChain()
   const [routeStatus, setRouteStatus] = useState<"idle" | "checking" | "fallback">("idle")
+  const [networkStatus, setNetworkStatus] = useState<string | null>(null)
+  const [networkError, setNetworkError] = useState<string | null>(null)
+  const [isSwitchingNetwork, setIsSwitchingNetwork] = useState(false)
+  const connectedToTargetChain = chainId === activeChain.id
 
   const { data: registered, isLoading } = useReadContract({
     address: merchantRegistryAddress,
     abi: merchantRegistryAbi,
     functionName: "isActive",
     args: address ? [address] : undefined,
-    query: { enabled: !!address && merchantRegistryConfigured },
+    query: { enabled: !!address && connectedToTargetChain && merchantRegistryConfigured },
   })
 
+  async function requestNetworkSwitch() {
+    setNetworkError(null)
+    setNetworkStatus(`Requesting ${activeChain.name} in your wallet…`)
+    setIsSwitchingNetwork(true)
+    try {
+      await switchChainAsync({ chainId: activeChain.id })
+      setNetworkStatus(`Connected to ${activeChain.name}. Continuing…`)
+    } catch (wagmiError) {
+      try {
+        const provider = (window as typeof window & {
+          ethereum?: {
+            request: (args: { method: string; params?: unknown[] }) => Promise<unknown>
+          }
+        }).ethereum
+        if (!provider) throw wagmiError
+        await provider.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: `0x${activeChain.id.toString(16)}` }],
+        })
+        setNetworkStatus(`Connected to ${activeChain.name}. Continuing…`)
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Wallet did not open a network switch popup."
+        setNetworkError(`${message} Please switch manually to ${activeChain.name} (chain ID ${activeChain.id}).`)
+      }
+    } finally {
+      setIsSwitchingNetwork(false)
+    }
+  }
+
   useEffect(() => {
-    if (!address) return
+    if (!address || !connectedToTargetChain) return
 
     let cancelled = false
     setRouteStatus("checking")
@@ -42,7 +77,7 @@ export function ConnectAndRoute() {
     return () => {
       cancelled = true
     }
-  }, [address, router])
+  }, [address, connectedToTargetChain, router])
 
   useEffect(() => {
     if (!address || routeStatus !== "fallback") return
@@ -75,6 +110,27 @@ export function ConnectAndRoute() {
   return (
     <div className="flex flex-col items-start gap-2">
       <DynamicWidget />
+      {address && !connectedToTargetChain && (
+        <div className="mt-3 max-w-sm rounded-2xl border border-primary/30 bg-background p-4 text-foreground shadow-lg">
+          <p className="text-sm font-bold">Wrong wallet network</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            CounterAgent runs on {activeChain.name}. Current chain: {chainId || "unknown"}. Switch networks before onboarding.
+          </p>
+          <button
+            type="button"
+            onClick={requestNetworkSwitch}
+            disabled={isSwitchingNetwork}
+            className="mt-3 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-60"
+          >
+            {isSwitchingNetwork ? "Opening wallet…" : `Switch to ${activeChain.name}`}
+          </button>
+          {(networkStatus || networkError) && (
+            <p className={`mt-2 text-xs ${networkError ? "text-destructive" : "text-muted-foreground"}`}>
+              {networkError || networkStatus}
+            </p>
+          )}
+        </div>
+      )}
       {address && routeStatus === "checking" && (
         <p className="text-xs text-header-foreground/60">Checking your treasury with the Orchestrator…</p>
       )}
