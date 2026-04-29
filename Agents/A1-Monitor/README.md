@@ -7,3 +7,13 @@ Sponsor-visible plugin implementation:
 
 - `Plugin-ENS-MerchantConfig/` exposes `GET /healthz`, `POST /ens/provision`, and `GET /ens/config/:name`.
 - The plugin provisions ENS subnames and reads CounterAgent ENS text records for merchant configuration.
+
+## ETHSkills for A1
+
+Use ETHSkills only when changing chain reads, ENS/registry reads, indexing, or monitoring logic:
+
+```bash
+node ../scripts/install-ethskills.mjs --agent A1-Monitor
+```
+
+Relevant defaults: `l2s`, `indexing`, `tools`, `standards`.

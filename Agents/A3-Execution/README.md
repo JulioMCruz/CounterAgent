@@ -7,3 +7,13 @@ Sponsor-visible plugin implementation:
 - `Plugin-Uniswap-SwapExecution/` exposes `GET /healthz`, `POST /execution/quote`, `POST /execution/execute`, and `POST /execution/confirm`.
 - Default mode is `EXECUTION_MODE=dry-run`, so the workflow can be tested without submitting transactions.
 - Live execution remains gated until Uniswap/KeeperHub adapters and executor custody are reviewed.
+
+## ETHSkills for A3
+
+Use ETHSkills before changing swap quote/execution, wallet custody, relayer flow, gas, or Uniswap integration:
+
+```bash
+node ../scripts/install-ethskills.mjs --agent A3-Execution
+```
+
+Relevant defaults: `wallets`, `l2s`, `building-blocks`, `security`, `gas`, `tools`.
