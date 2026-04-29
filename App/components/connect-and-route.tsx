@@ -7,6 +7,15 @@ import { useAccount, useChainId, useReadContract, useSwitchChain } from "wagmi"
 import { resolveSession } from "@/lib/a0"
 import { merchantRegistryAbi } from "@/lib/merchant-registry-abi"
 import { activeChain, activeChainSwitchParams, merchantRegistryAddress, merchantRegistryConfigured } from "@/lib/registry"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 const dynamicConfigured = Boolean(process.env.NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID)
 
@@ -56,10 +65,28 @@ export function ConnectAndRoute() {
             }
           }).ethereum
           if (!provider) throw wagmiError
-          await provider.request({
-            method: "wallet_switchEthereumChain",
-            params: [{ chainId: `0x${activeChain.id.toString(16)}` }],
-          })
+          const hexChainId = `0x${activeChain.id.toString(16)}`
+          try {
+            await provider.request({
+              method: "wallet_switchEthereumChain",
+              params: [{ chainId: hexChainId }],
+            })
+          } catch (switchError) {
+            const code = typeof switchError === "object" && switchError && "code" in switchError ? switchError.code : undefined
+            if (code !== 4902) throw switchError
+            await provider.request({
+              method: "wallet_addEthereumChain",
+              params: [
+                {
+                  blockExplorerUrls: activeChainSwitchParams.addEthereumChainParameter.blockExplorerUrls,
+                  chainId: hexChainId,
+                  chainName: activeChainSwitchParams.addEthereumChainParameter.chainName,
+                  nativeCurrency: activeChainSwitchParams.addEthereumChainParameter.nativeCurrency,
+                  rpcUrls: activeChainSwitchParams.addEthereumChainParameter.rpcUrls,
+                },
+              ],
+            })
+          }
           setNetworkStatus(`Connected to ${activeChain.name}. Continuing…`)
         } catch (providerError) {
           const error = providerError instanceof Error ? providerError : dynamicError
@@ -124,6 +151,29 @@ export function ConnectAndRoute() {
   return (
     <div className="flex flex-col items-start gap-2">
       <DynamicWidget />
+      <Dialog open={!!address && !connectedToTargetChain}>
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Switch to {activeChain.name}</DialogTitle>
+            <DialogDescription>
+              CounterAgent onboarding runs on {activeChain.name} (chain ID {activeChain.id}). Your wallet is currently on chain {chainId || "unknown"}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg bg-secondary p-3 text-xs text-muted-foreground">
+            Click the button below to ask your wallet to switch networks. If your wallet does not support automatic switching, switch manually in the wallet network selector.
+          </div>
+          {(networkStatus || networkError) && (
+            <p className={`text-xs ${networkError ? "text-destructive" : "text-muted-foreground"}`}>
+              {networkError || networkStatus}
+            </p>
+          )}
+          <DialogFooter>
+            <Button type="button" onClick={requestNetworkSwitch} disabled={isSwitchingNetwork} className="w-full">
+              {isSwitchingNetwork ? "Opening wallet…" : `Switch to ${activeChain.name}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {address && !connectedToTargetChain && (
         <div className="mt-3 max-w-sm rounded-2xl border border-primary/30 bg-background p-4 text-foreground shadow-lg">
           <p className="text-sm font-bold">Wrong wallet network</p>
