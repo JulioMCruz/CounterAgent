@@ -205,6 +205,10 @@ export default function OnboardingPage() {
         <SessionHeaderActions />
       </header>
 
+      <div className="fixed bottom-3 left-3 z-50 lg:hidden">
+        <BuildBadge />
+      </div>
+
       {/* Step Indicator */}
       <div className="flex items-center justify-center gap-2 border-b border-border bg-card px-4 py-3">
         {steps.map((step, i) => {
