@@ -4,40 +4,23 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Zap, Check, ArrowLeft, Loader2 } from "lucide-react"
-import { keccak256, toBytes } from "viem"
-import { readContract } from "wagmi/actions"
 import { useAccount, useChainId, useSignTypedData, useSwitchChain } from "wagmi"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Slider } from "@/components/ui/slider"
 import { SessionHeaderActions } from "@/components/session-header-actions"
-import { startOnboarding } from "@/lib/a0"
-import { merchantRegistryAbi } from "@/lib/merchant-registry-abi"
-import { wagmiConfig } from "@/lib/wagmi"
+import { prepareOnboarding, startOnboarding } from "@/lib/a0"
 import {
   activeChain,
   merchantRegistryAddress,
   merchantRegistryConfigured,
-  RiskTolerance,
-  stablecoinAddresses,
 } from "@/lib/registry"
 
 const steps = ["Connect", "Configure", "Active"]
 const riskLevels = ["Conservative", "Moderate", "Aggressive"] as const
 const stablecoins = ["USDC", "EURC", "USDT"] as const
 const ensParent = "counteragent.eth"
-const delegatedRegistrationTypes = {
-  Register: [
-    { name: "merchant", type: "address" },
-    { name: "fxThresholdBps", type: "uint16" },
-    { name: "risk", type: "uint8" },
-    { name: "preferredStablecoin", type: "address" },
-    { name: "telegramChatId", type: "bytes32" },
-    { name: "nonce", type: "uint256" },
-    { name: "deadline", type: "uint256" },
-  ],
-} as const
 
 function sanitizeMerchantSlug(value: string) {
   return value
@@ -94,39 +77,28 @@ export default function OnboardingPage() {
       }
 
       const fxThresholdBps = Math.round(threshold[0] * 100) // 0.5% → 50 bps
-      const riskValue = RiskTolerance[riskTolerance]
-      const stablecoin = stablecoinAddresses[preferredCoin]
       const merchantEnsName = `${merchantSlug}.${ensParent}`
-      const chatBytes32 = keccak256(toBytes(telegramChat || merchantEnsName || address))
 
-      setStatusText("Preparing delegated registry authorization…")
-      const nonce = await readContract(wagmiConfig, {
-        address: merchantRegistryAddress,
-        abi: merchantRegistryAbi,
-        functionName: "nonces",
-        args: [address],
+      setStatusText("A0 is preparing delegated registry authorization…")
+      const prepared = await prepareOnboarding({
+        walletAddress: address,
+        chainId: activeChain.id,
+        ensName: merchantEnsName,
+        fxThresholdBps,
+        riskTolerance,
+        preferredStablecoin: preferredCoin,
+        telegramChat,
       })
-
-      const registrationDeadline = Math.floor(Date.now() / 1000) + 15 * 60
 
       setStatusText("Sign the CounterAgent registration authorization…")
       const registrationSignature = await signTypedDataAsync({
-        domain: {
-          name: "CounterAgent MerchantRegistry",
-          version: "1",
-          chainId: activeChain.id,
-          verifyingContract: merchantRegistryAddress,
-        },
-        types: delegatedRegistrationTypes,
-        primaryType: "Register",
+        domain: prepared.domain,
+        types: prepared.types,
+        primaryType: prepared.primaryType,
         message: {
-          merchant: address,
-          fxThresholdBps,
-          risk: riskValue,
-          preferredStablecoin: stablecoin,
-          telegramChatId: chatBytes32,
-          nonce,
-          deadline: BigInt(registrationDeadline),
+          ...prepared.message,
+          nonce: BigInt(prepared.message.nonce),
+          deadline: BigInt(prepared.message.deadline),
         },
       })
 
@@ -142,7 +114,7 @@ export default function OnboardingPage() {
         preferredStablecoin: preferredCoin,
         telegramChat,
         registrationSignature,
-        registrationDeadline,
+        registrationDeadline: prepared.message.deadline,
         idempotencyKey: `${activeChain.id}:${address.toLowerCase()}:${merchantSlug}`,
       })
 

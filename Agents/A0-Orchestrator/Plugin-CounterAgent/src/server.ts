@@ -81,6 +81,16 @@ const onboardingRequestSchema = z.object({
   idempotencyKey: z.string().min(8).max(120).optional()
 });
 
+const onboardingPrepareSchema = z.object({
+  walletAddress: z.string().refine(isAddress, 'Invalid wallet address'),
+  chainId: z.number().int().positive(),
+  ensName: z.string().min(1).max(255).optional(),
+  fxThresholdBps: z.number().int().min(1).max(10_000),
+  riskTolerance: z.string().min(1).max(40),
+  preferredStablecoin: z.string().min(1).max(40),
+  telegramChat: z.string().max(120).optional()
+});
+
 const tokenSchema = z.enum(['USDC', 'EURC', 'USDT']);
 const riskSchema = z.enum(['conservative', 'moderate', 'aggressive']).or(
   z.enum(['Conservative', 'Moderate', 'Aggressive']).transform((value) => value.toLowerCase() as 'conservative' | 'moderate' | 'aggressive')
@@ -549,6 +559,80 @@ app.post('/onboarding/start', async (request, reply) => {
       onboardingId,
       error: 'monitor_agent_unreachable'
     });
+  }
+});
+
+app.post('/onboarding/prepare', async (request, reply) => {
+  const parsed = onboardingPrepareSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    return reply.code(400).send({
+      ok: false,
+      error: 'invalid_request',
+      details: parsed.error.flatten()
+    });
+  }
+
+  if (!merchantRegistryAddress || !isAddress(merchantRegistryAddress)) {
+    return reply.code(503).send({ ok: false, error: 'merchant_registry_not_configured' });
+  }
+
+  const input = parsed.data;
+  const stablecoin = stablecoinAddresses[input.preferredStablecoin];
+  if (!stablecoin) return reply.code(400).send({ ok: false, error: 'unsupported_stablecoin' });
+
+  try {
+    const client = registryClientFor(input.chainId);
+    const nonce = await client.readContract({
+      address: merchantRegistryAddress,
+      abi: [
+        {
+          type: 'function',
+          name: 'nonces',
+          stateMutability: 'view',
+          inputs: [{ name: 'merchant', type: 'address' }],
+          outputs: [{ type: 'uint256' }]
+        }
+      ] as const,
+      functionName: 'nonces',
+      args: [input.walletAddress as Address]
+    });
+    const deadline = Math.floor(Date.now() / 1000) + 15 * 60;
+    const telegramChatId = keccak256(toBytes(input.telegramChat || input.ensName || input.walletAddress));
+
+    return reply.send({
+      ok: true,
+      domain: {
+        name: 'CounterAgent MerchantRegistry',
+        version: '1',
+        chainId: chainFor(input.chainId).id,
+        verifyingContract: merchantRegistryAddress
+      },
+      types: {
+        Register: [
+          { name: 'merchant', type: 'address' },
+          { name: 'fxThresholdBps', type: 'uint16' },
+          { name: 'risk', type: 'uint8' },
+          { name: 'preferredStablecoin', type: 'address' },
+          { name: 'telegramChatId', type: 'bytes32' },
+          { name: 'nonce', type: 'uint256' },
+          { name: 'deadline', type: 'uint256' }
+        ]
+      },
+      primaryType: 'Register',
+      message: {
+        merchant: input.walletAddress,
+        fxThresholdBps: input.fxThresholdBps,
+        risk: riskValueFor(input.riskTolerance),
+        preferredStablecoin: stablecoin,
+        telegramChatId,
+        nonce: nonce.toString(),
+        deadline
+      }
+    });
+  } catch (error) {
+    request.log.error({ error }, 'onboarding prepare failed');
+    return reply.code(502).send({ ok: false, error: 'registration_prepare_failed' });
   }
 });
 
