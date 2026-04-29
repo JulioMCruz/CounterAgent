@@ -14,6 +14,35 @@ export const activeChainSwitchParams = {
   },
 } as const
 
+export const dynamicEvmNetworks = [
+  {
+    blockExplorerUrls: ["https://sepolia.basescan.org"],
+    chain: "EVM",
+    chainId: baseSepolia.id,
+    iconUrls: [],
+    isTestnet: true,
+    name: baseSepolia.name,
+    nativeCurrency: baseSepolia.nativeCurrency,
+    networkId: baseSepolia.id,
+    privateCustomerRpcUrls: [],
+    rpcUrls: ["https://sepolia.base.org"],
+    vanityName: "Base Sepolia",
+  },
+  {
+    blockExplorerUrls: ["https://basescan.org"],
+    chain: "EVM",
+    chainId: base.id,
+    iconUrls: [],
+    isTestnet: false,
+    name: base.name,
+    nativeCurrency: base.nativeCurrency,
+    networkId: base.id,
+    privateCustomerRpcUrls: [],
+    rpcUrls: ["https://mainnet.base.org"],
+    vanityName: "Base",
+  },
+]
+
 export const merchantRegistryAddress = process.env
   .NEXT_PUBLIC_MERCHANT_REGISTRY_ADDRESS as `0x${string}` | undefined
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { DynamicWidget } from "@dynamic-labs/sdk-react-core"
+import { DynamicWidget, useDynamicContext } from "@dynamic-labs/sdk-react-core"
 import { useAccount, useChainId, useReadContract, useSwitchChain } from "wagmi"
 import { resolveSession } from "@/lib/a0"
 import { merchantRegistryAbi } from "@/lib/merchant-registry-abi"
@@ -13,6 +13,7 @@ const dynamicConfigured = Boolean(process.env.NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID
 export function ConnectAndRoute() {
   const router = useRouter()
   const { address } = useAccount()
+  const { primaryWallet } = useDynamicContext()
   const chainId = useChainId()
   const { switchChainAsync } = useSwitchChain()
   const [routeStatus, setRouteStatus] = useState<"idle" | "checking" | "fallback">("idle")
@@ -34,24 +35,37 @@ export function ConnectAndRoute() {
     setNetworkStatus(`Requesting ${activeChain.name} in your wallet…`)
     setIsSwitchingNetwork(true)
     try {
-      await switchChainAsync(activeChainSwitchParams)
-      setNetworkStatus(`Connected to ${activeChain.name}. Continuing…`)
-    } catch (wagmiError) {
-      try {
-        const provider = (window as typeof window & {
-          ethereum?: {
-            request: (args: { method: string; params?: unknown[] }) => Promise<unknown>
-          }
-        }).ethereum
-        if (!provider) throw wagmiError
-        await provider.request({
-          method: "wallet_switchEthereumChain",
-          params: [{ chainId: `0x${activeChain.id.toString(16)}` }],
+      if (primaryWallet?.connector?.switchNetwork) {
+        await primaryWallet.connector.switchNetwork({
+          networkChainId: activeChain.id,
+          networkName: activeChain.name,
         })
+      } else {
+        await switchChainAsync(activeChainSwitchParams)
+      }
+      setNetworkStatus(`Connected to ${activeChain.name}. Continuing…`)
+    } catch (dynamicError) {
+      try {
+        await switchChainAsync(activeChainSwitchParams)
         setNetworkStatus(`Connected to ${activeChain.name}. Continuing…`)
-      } catch (e) {
-        const message = e instanceof Error ? e.message : "Wallet did not open a network switch popup."
-        setNetworkError(`${message} Please switch manually to ${activeChain.name} (chain ID ${activeChain.id}).`)
+      } catch (wagmiError) {
+        try {
+          const provider = (window as typeof window & {
+            ethereum?: {
+              request: (args: { method: string; params?: unknown[] }) => Promise<unknown>
+            }
+          }).ethereum
+          if (!provider) throw wagmiError
+          await provider.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: `0x${activeChain.id.toString(16)}` }],
+          })
+          setNetworkStatus(`Connected to ${activeChain.name}. Continuing…`)
+        } catch (providerError) {
+          const error = providerError instanceof Error ? providerError : dynamicError
+          const message = error instanceof Error ? error.message : "Wallet did not open a network switch popup."
+          setNetworkError(`${message} Please switch manually to ${activeChain.name} (chain ID ${activeChain.id}).`)
+        }
       }
     } finally {
       setIsSwitchingNetwork(false)
