@@ -1,6 +1,5 @@
 import Link from "next/link"
 import { Zap, ArrowRightLeft, FileText, Radio, MessageCircle } from "lucide-react"
-import { BuildBadge } from "@/components/build-badge"
 import { ConnectAndRoute } from "@/components/connect-and-route"
 import { SessionHeaderActions } from "@/components/session-header-actions"
 
@@ -39,10 +38,6 @@ export default function LandingPage() {
           </p>
           <div className="mt-8 lg:mt-10">
             <ConnectAndRoute />
-            <div className="mt-3 flex items-center gap-2 text-xs text-header-foreground/50">
-              <span>Build</span>
-              <BuildBadge />
-            </div>
           </div>
 
           {/* Powered By */}

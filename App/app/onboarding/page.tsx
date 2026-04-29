@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Slider } from "@/components/ui/slider"
-import { BuildBadge } from "@/components/build-badge"
 import { SessionHeaderActions } from "@/components/session-header-actions"
 import { prepareOnboarding, startOnboarding, type OnboardingPrepareResponse } from "@/lib/a0"
 import {
@@ -201,14 +200,9 @@ export default function OnboardingPage() {
           </Link>
           <Zap className="h-5 w-5 text-primary" fill="currentColor" />
           <span className="text-lg font-bold tracking-tight">Counter Agent</span>
-          <BuildBadge />
         </div>
         <SessionHeaderActions />
       </header>
-
-      <div className="fixed bottom-3 left-3 z-50 xl:hidden">
-        <BuildBadge />
-      </div>
 
       {/* Step Indicator */}
       <div className="flex items-center justify-center gap-2 border-b border-border bg-card px-4 py-3">

@@ -1,7 +1,6 @@
 "use client"
 
 import { Zap } from "lucide-react"
-import { BuildBadge } from "@/components/build-badge"
 import { SessionHeaderActions } from "@/components/session-header-actions"
 
 interface AppHeaderProps {
@@ -25,7 +24,6 @@ export function AppHeader({ showStatus = true, statusLabel = "Active", networkLa
       <div className="flex items-center gap-3">
         {showStatus && (
           <>
-            <BuildBadge className="hidden sm:inline-flex" />
             <div className="flex items-center gap-1.5 rounded-full bg-header-foreground/10 px-2.5 py-1 text-xs font-medium">
               <span className="h-1.5 w-1.5 rounded-full bg-success" />
               <span>{statusLabel}</span>

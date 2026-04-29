@@ -23,9 +23,10 @@ export default function RootLayout({
     <html lang="en" className="bg-background">
       <body className="font-sans antialiased">
         <Providers>{children}</Providers>
-        <div className="fixed bottom-3 left-3 z-[9999]">
+        <footer className="fixed bottom-2 right-3 z-[9999] flex items-center gap-2 text-xs text-muted-foreground">
+          <span>Version</span>
           <BuildBadge />
-        </div>
+        </footer>
       </body>
     </html>
   )
