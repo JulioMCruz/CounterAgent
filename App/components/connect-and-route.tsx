@@ -23,13 +23,19 @@ export function ConnectAndRoute() {
   const router = useRouter()
   const { address } = useAccount()
   const { primaryWallet } = useDynamicContext()
-  const chainId = useChainId()
+  const wagmiChainId = useChainId()
   const { switchChainAsync } = useSwitchChain()
   const [routeStatus, setRouteStatus] = useState<"idle" | "checking" | "fallback">("idle")
   const [networkStatus, setNetworkStatus] = useState<string | null>(null)
   const [networkError, setNetworkError] = useState<string | null>(null)
   const [isSwitchingNetwork, setIsSwitchingNetwork] = useState(false)
-  const connectedToTargetChain = chainId === activeChain.id
+  const [dynamicChainId, setDynamicChainId] = useState<number | null>(null)
+  const [providerChainId, setProviderChainId] = useState<number | null>(null)
+  const observedChainIds = [wagmiChainId, dynamicChainId, providerChainId].filter(
+    (value): value is number => typeof value === "number" && Number.isFinite(value)
+  )
+  const connectedToTargetChain = observedChainIds.includes(activeChain.id)
+  const visibleChainId = providerChainId ?? dynamicChainId ?? wagmiChainId
 
   const { data: registered, isLoading } = useReadContract({
     address: merchantRegistryAddress,
@@ -100,6 +106,48 @@ export function ConnectAndRoute() {
   }
 
   useEffect(() => {
+    let cancelled = false
+
+    async function refreshNetworkState() {
+      try {
+        const network = await primaryWallet?.connector?.getNetwork?.()
+        if (!cancelled && network) setDynamicChainId(Number(network))
+      } catch {
+        if (!cancelled) setDynamicChainId(null)
+      }
+
+      try {
+        const provider = (window as typeof window & {
+          ethereum?: {
+            request: (args: { method: string; params?: unknown[] }) => Promise<unknown>
+          }
+        }).ethereum
+        const hexChainId = provider ? await provider.request({ method: "eth_chainId" }) : null
+        if (!cancelled && typeof hexChainId === "string") setProviderChainId(Number.parseInt(hexChainId, 16))
+      } catch {
+        if (!cancelled) setProviderChainId(null)
+      }
+    }
+
+    refreshNetworkState()
+    const interval = window.setInterval(refreshNetworkState, 1500)
+    const provider = (window as typeof window & {
+      ethereum?: {
+        on?: (event: string, handler: (chainId: string) => void) => void
+        removeListener?: (event: string, handler: (chainId: string) => void) => void
+      }
+    }).ethereum
+    const onChainChanged = (hexChainId: string) => setProviderChainId(Number.parseInt(hexChainId, 16))
+    provider?.on?.("chainChanged", onChainChanged)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+      provider?.removeListener?.("chainChanged", onChainChanged)
+    }
+  }, [primaryWallet])
+
+  useEffect(() => {
     if (!address || !connectedToTargetChain) return
 
     let cancelled = false
@@ -156,9 +204,12 @@ export function ConnectAndRoute() {
           <DialogHeader>
             <DialogTitle>Switch to {activeChain.name}</DialogTitle>
             <DialogDescription>
-              CounterAgent onboarding runs on {activeChain.name} (chain ID {activeChain.id}). Your wallet is currently on chain {chainId || "unknown"}.
+              CounterAgent onboarding runs on {activeChain.name} (chain ID {activeChain.id}). Your wallet is currently on chain {visibleChainId || "unknown"}.
             </DialogDescription>
           </DialogHeader>
+          <p className="font-mono text-[11px] text-muted-foreground">
+            Debug chain: wagmi={wagmiChainId || "?"} dynamic={dynamicChainId || "?"} provider={providerChainId || "?"}
+          </p>
           <div className="rounded-lg bg-secondary p-3 text-xs text-muted-foreground">
             Click the button below to ask your wallet to switch networks. If your wallet does not support automatic switching, switch manually in the wallet network selector.
           </div>
@@ -178,7 +229,10 @@ export function ConnectAndRoute() {
         <div className="mt-3 max-w-sm rounded-2xl border border-primary/30 bg-background p-4 text-foreground shadow-lg">
           <p className="text-sm font-bold">Wrong wallet network</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            CounterAgent runs on {activeChain.name}. Current chain: {chainId || "unknown"}. Switch networks before onboarding.
+            CounterAgent runs on {activeChain.name}. Current chain: {visibleChainId || "unknown"}. Switch networks before onboarding.
+          </p>
+          <p className="mt-2 font-mono text-[11px] text-muted-foreground">
+            Debug chain: wagmi={wagmiChainId || "?"} dynamic={dynamicChainId || "?"} provider={providerChainId || "?"}
           </p>
           <button
             type="button"
