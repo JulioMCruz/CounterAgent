@@ -60,6 +60,27 @@ const onboardingRequestSchema = z.object({
   idempotencyKey: z.string().min(8).max(120).optional()
 });
 
+const tokenSchema = z.enum(['USDC', 'EURC', 'USDT']);
+const riskSchema = z.enum(['conservative', 'moderate', 'aggressive']).or(
+  z.enum(['Conservative', 'Moderate', 'Aggressive']).transform((value) => value.toLowerCase() as 'conservative' | 'moderate' | 'aggressive')
+);
+const workflowSchema = z.object({
+  workflowId: z.string().min(1).max(120).optional(),
+  merchantEns: z.string().min(1).max(255).optional(),
+  walletAddress: z.string().refine(isAddress, 'Invalid wallet address'),
+  chainId: z.number().int().positive().optional(),
+  fromToken: tokenSchema,
+  toToken: tokenSchema.default('USDC'),
+  amount: z.string().min(1).max(80),
+  fxThresholdBps: z.number().int().min(0).max(10_000).default(50),
+  riskTolerance: riskSchema.default('moderate'),
+  slippageBps: z.number().int().min(1).max(1_000).default(50),
+  baselineRate: z.number().positive().optional(),
+  dryRunRate: z.number().positive().optional(),
+  idempotencyKey: z.string().min(8).max(160).optional(),
+  metadata: z.record(z.unknown()).optional()
+});
+
 const port = Number(process.env.PORT ?? 8787);
 const corsOrigins = (process.env.CORS_ORIGIN ?? 'https://counteragent.netlify.app')
   .split(',')
@@ -70,6 +91,9 @@ const baseRpcUrl = process.env.BASE_RPC_URL || 'https://sepolia.base.org';
 const defaultChainId = Number(process.env.DEFAULT_CHAIN_ID ?? 84532);
 const monitorAgentUrl = process.env.MONITOR_AGENT_URL;
 const reportingAgentUrl = process.env.REPORTING_AGENT_URL;
+const decisionAgentUrl = process.env.DECISION_AGENT_URL;
+const executionAgentUrl = process.env.EXECUTION_AGENT_URL;
+const axlMessagingUrl = process.env.GENSYN_AXL_MESSAGING_URL;
 const ensParentName = process.env.ENS_PARENT_NAME ?? 'counteragent.eth';
 
 const app = Fastify({ logger: true });
@@ -105,9 +129,46 @@ app.get('/healthz', async () => ({
   status: 'live',
   agents: {
     monitorConfigured: Boolean(monitorAgentUrl),
-    reportingConfigured: Boolean(reportingAgentUrl)
+    reportingConfigured: Boolean(reportingAgentUrl),
+    decisionConfigured: Boolean(decisionAgentUrl),
+    executionConfigured: Boolean(executionAgentUrl),
+    gensynAxlMessagingConfigured: Boolean(axlMessagingUrl)
   }
 }));
+
+async function postJson<T>(url: string, body: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok || payload.ok === false) {
+    throw new Error(`post_failed:${response.status}`);
+  }
+
+  return payload as T;
+}
+
+async function emitAxlMessage(input: {
+  workflowId: string;
+  fromAgent: string;
+  toAgent: string;
+  messageType: string;
+  payload?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}) {
+  if (!axlMessagingUrl) return null;
+
+  try {
+    return await postJson(`${axlMessagingUrl.replace(/\/$/, '')}/axl/messages`, input);
+  } catch (error) {
+    app.log.warn({ error, messageType: input.messageType }, 'Gensyn AXL messaging adapter unavailable');
+    return null;
+  }
+}
 
 async function publishOnboardingReport(input: {
   onboardingId: string;
@@ -148,6 +209,41 @@ async function publishOnboardingReport(input: {
   }
 
   return report;
+}
+
+async function publishWorkflowReport(input: {
+  workflowId: string;
+  merchantEns: string;
+  walletAddress: string;
+  fromToken: string;
+  toToken: string;
+  amount: string;
+  decision: unknown;
+  execution: unknown;
+  quote: unknown;
+}) {
+  if (!reportingAgentUrl) return null;
+
+  const decisionRecord = input.decision as { decision?: { action?: string; reason?: string } };
+  const executionRecord = input.execution as { transactionHash?: string | null; status?: string };
+  const quoteRecord = input.quote as { quote?: { rate?: number } };
+  const txHash = typeof executionRecord.transactionHash === 'string' ? executionRecord.transactionHash : undefined;
+
+  return postJson(`${reportingAgentUrl.replace(/\/$/, '')}/reports/publish`, {
+    reportId: input.workflowId.replace(/[^a-zA-Z0-9._:-]/g, '-').slice(0, 120),
+    merchantEns: input.merchantEns,
+    merchantWallet: input.walletAddress,
+    decision: decisionRecord.decision?.action ?? 'workflow-evaluated',
+    summary: `Treasury workflow ${decisionRecord.decision?.action ?? 'evaluated'} for ${input.amount} ${input.fromToken} to ${input.toToken}.`,
+    fxRate: quoteRecord.quote?.rate ? String(quoteRecord.quote.rate) : undefined,
+    transactionHash: txHash && /^0x[a-fA-F0-9]{64}$/.test(txHash) ? txHash : undefined,
+    executionAgent: 'A3-Uniswap-SwapExecution',
+    metadata: {
+      quote: input.quote,
+      decision: input.decision,
+      execution: input.execution
+    }
+  });
 }
 
 app.post('/session/resolve', async (request, reply) => {
@@ -323,6 +419,209 @@ app.post('/onboarding/start', async (request, reply) => {
       ok: false,
       onboardingId,
       error: 'monitor_agent_unreachable'
+    });
+  }
+});
+
+app.post('/workflow/evaluate', async (request, reply) => {
+  const parsed = workflowSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    return reply.code(400).send({
+      ok: false,
+      error: 'invalid_request',
+      details: parsed.error.flatten()
+    });
+  }
+
+  if (!executionAgentUrl || !decisionAgentUrl) {
+    return reply.code(503).send({
+      ok: false,
+      error: 'workflow_agents_not_configured',
+      agents: {
+        decisionConfigured: Boolean(decisionAgentUrl),
+        executionConfigured: Boolean(executionAgentUrl)
+      }
+    });
+  }
+
+  const workflow = parsed.data;
+  const workflowId = workflow.idempotencyKey
+    ?? workflow.workflowId
+    ?? `${workflow.chainId ?? defaultChainId}:${workflow.walletAddress.toLowerCase()}:${Date.now()}`;
+  const merchantEns = workflow.merchantEns ?? `${workflow.walletAddress.toLowerCase()}.${ensParentName}`;
+
+  try {
+    await emitAxlMessage({
+      workflowId,
+      fromAgent: 'A0-Orchestrator',
+      toAgent: 'A3-Uniswap-SwapExecution',
+      messageType: 'quote-request',
+      payload: {
+        fromToken: workflow.fromToken,
+        toToken: workflow.toToken,
+        amount: workflow.amount,
+        slippageBps: workflow.slippageBps
+      }
+    });
+
+    const quote = await postJson<{
+      ok: boolean;
+      workflowId?: string;
+      quote: {
+        provider?: string;
+        rate: number;
+        baselineRate?: number;
+        feeBps?: number;
+        priceImpactBps?: number;
+        [key: string]: unknown;
+      };
+    }>(`${executionAgentUrl.replace(/\/$/, '')}/execution/quote`, {
+      workflowId,
+      merchantWallet: workflow.walletAddress,
+      fromToken: workflow.fromToken,
+      toToken: workflow.toToken,
+      amount: workflow.amount,
+      slippageBps: workflow.slippageBps,
+      dryRunRate: workflow.dryRunRate,
+      baselineRate: workflow.baselineRate
+    });
+
+    await emitAxlMessage({
+      workflowId,
+      fromAgent: 'A3-Uniswap-SwapExecution',
+      toAgent: 'A0-Orchestrator',
+      messageType: 'quote-response',
+      payload: { quote: quote.quote }
+    });
+
+    await emitAxlMessage({
+      workflowId,
+      fromAgent: 'A0-Orchestrator',
+      toAgent: 'A2-Decision',
+      messageType: 'decision-request',
+      payload: {
+        quote: quote.quote,
+        fxThresholdBps: workflow.fxThresholdBps,
+        riskTolerance: workflow.riskTolerance
+      }
+    });
+
+    const decision = await postJson<{
+      ok: boolean;
+      decision: {
+        action: 'HOLD' | 'CONVERT';
+        confidence: number;
+        reason: string;
+        [key: string]: unknown;
+      };
+    }>(`${decisionAgentUrl.replace(/\/$/, '')}/decision/evaluate`, {
+      workflowId,
+      merchantEns,
+      merchantWallet: workflow.walletAddress,
+      fromToken: workflow.fromToken,
+      toToken: workflow.toToken,
+      amount: workflow.amount,
+      fxThresholdBps: workflow.fxThresholdBps,
+      riskTolerance: workflow.riskTolerance,
+      quote: {
+        provider: quote.quote.provider,
+        rate: quote.quote.rate,
+        baselineRate: quote.quote.baselineRate ?? workflow.baselineRate,
+        feeBps: quote.quote.feeBps ?? 0,
+        priceImpactBps: quote.quote.priceImpactBps ?? 0
+      },
+      metadata: workflow.metadata
+    });
+
+    await emitAxlMessage({
+      workflowId,
+      fromAgent: 'A2-Decision',
+      toAgent: 'A0-Orchestrator',
+      messageType: 'decision-response',
+      payload: { decision: decision.decision }
+    });
+
+    await emitAxlMessage({
+      workflowId,
+      fromAgent: 'A0-Orchestrator',
+      toAgent: 'A3-Uniswap-SwapExecution',
+      messageType: 'execution-request',
+      payload: {
+        action: decision.decision.action,
+        confidence: decision.decision.confidence
+      }
+    });
+
+    const execution = await postJson<{
+      ok: boolean;
+      status: string;
+      transactionHash?: string | null;
+      [key: string]: unknown;
+    }>(`${executionAgentUrl.replace(/\/$/, '')}/execution/execute`, {
+      workflowId,
+      merchantWallet: workflow.walletAddress,
+      fromToken: workflow.fromToken,
+      toToken: workflow.toToken,
+      amount: workflow.amount,
+      slippageBps: workflow.slippageBps,
+      dryRunRate: workflow.dryRunRate,
+      baselineRate: workflow.baselineRate,
+      idempotencyKey: workflow.idempotencyKey,
+      quoteId: quote.quote.quoteId,
+      decision: {
+        action: decision.decision.action,
+        confidence: decision.decision.confidence
+      }
+    });
+
+    await emitAxlMessage({
+      workflowId,
+      fromAgent: 'A3-Uniswap-SwapExecution',
+      toAgent: 'A0-Orchestrator',
+      messageType: 'execution-response',
+      payload: {
+        status: execution.status,
+        transactionHash: execution.transactionHash
+      }
+    });
+
+    let report: unknown = null;
+    let reportWarning: string | undefined;
+
+    try {
+      report = await publishWorkflowReport({
+        workflowId,
+        merchantEns,
+        walletAddress: workflow.walletAddress,
+        fromToken: workflow.fromToken,
+        toToken: workflow.toToken,
+        amount: workflow.amount,
+        quote,
+        decision,
+        execution
+      });
+    } catch (error) {
+      request.log.error({ error }, 'A4 workflow report publish failed');
+      reportWarning = 'report_publish_failed';
+    }
+
+    return reply.send({
+      ok: true,
+      workflowId,
+      status: execution.status === 'dry-run' ? 'dry-run-completed' : 'completed',
+      quote,
+      decision,
+      execution,
+      report,
+      reportWarning
+    });
+  } catch (error) {
+    request.log.error({ error }, 'Workflow evaluation failed');
+    return reply.code(502).send({
+      ok: false,
+      workflowId,
+      error: 'workflow_evaluation_failed'
     });
   }
 });

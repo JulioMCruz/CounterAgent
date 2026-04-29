@@ -42,8 +42,8 @@ services:
       - "3003:3000"
       - "127.0.0.1:5003:5000"
     volumes:
+      - ./agents/a2-decision/config:/root/.openclaw
       - ./agents/a2-decision/workspace:/root/.openclaw/workspace
-      - ./agents/a2-decision/openclaw.json:/root/.openclaw/openclaw.json:ro
     environment:
       - AGENT_NAME=a2-decision
       - A2A_PORT=5000
@@ -59,13 +59,55 @@ services:
       - "3004:3000"
       - "127.0.0.1:5004:5000"
     volumes:
+      - ./agents/a3-execution/config:/root/.openclaw
       - ./agents/a3-execution/workspace:/root/.openclaw/workspace
-      - ./agents/a3-execution/openclaw.json:/root/.openclaw/openclaw.json:ro
     environment:
       - AGENT_NAME=a3-execution
       - A2A_PORT=5000
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENCLAW_TOKEN=${OPENCLAW_TOKEN_A3}
+    networks: [agents]
+
+  decision-scoring-plugin:
+    build: ./agents/a2-decision/Plugin-CounterAgent-DecisionScoring
+    container_name: counteragent-decision-scoring-plugin
+    restart: unless-stopped
+    environment:
+      - PORT=8790
+      - CORS_ORIGIN=https://counteragent.netlify.app,https://counteragent.perkos.xyz,https://orchestrator.counteragent.perkos.xyz
+      - DECISION_MIN_CONFIDENCE=70
+      - DECISION_DEFAULT_BASELINE_RATE=1.0000
+    networks: [agents]
+
+  gensyn-axl-messaging-plugin:
+    build: ./agents/a0-orchestrator/Plugin-Gensyn-AXL-AgentMessaging
+    container_name: counteragent-gensyn-axl-messaging-plugin
+    restart: unless-stopped
+    environment:
+      - PORT=8792
+      - CORS_ORIGIN=https://counteragent.netlify.app,https://counteragent.perkos.xyz,https://orchestrator.counteragent.perkos.xyz
+      - GENSYN_AXL_MODE=adapter
+      - GENSYN_AXL_NODE_URL=${GENSYN_AXL_NODE_URL:-}
+      - GENSYN_AXL_AGENT_ID=counteragent-a0
+    networks: [agents]
+
+  uniswap-swap-plugin:
+    build: ./agents/a3-execution/Plugin-Uniswap-SwapExecution
+    container_name: counteragent-uniswap-swap-plugin
+    restart: unless-stopped
+    environment:
+      - PORT=8791
+      - CORS_ORIGIN=https://counteragent.netlify.app,https://counteragent.perkos.xyz,https://orchestrator.counteragent.perkos.xyz
+      - EXECUTION_MODE=dry-run
+      - CHAIN_ID=8453
+      - BASE_RPC_URL=${BASE_RPC_URL:-https://mainnet.base.org}
+      - UNISWAP_API_URL=https://trade-api.gateway.uniswap.org/v1
+      - UNISWAP_API_KEY=${UNISWAP_API_KEY:-}
+      - UNISWAP_RETRY_COUNT=2
+      - UNISWAP_TIMEOUT_MS=10000
+      - KEEPERHUB_API_URL=${KEEPERHUB_API_URL:-}
+      - KEEPERHUB_API_KEY=${KEEPERHUB_API_KEY:-}
+      - EXECUTOR_PRIVATE_KEY=${A3_EXECUTOR_PRIVATE_KEY:-}
     networks: [agents]
 
   a4-reporting:
@@ -91,6 +133,9 @@ services:
     restart: unless-stopped
     depends_on:
       - a0-orchestrator
+      - decision-scoring-plugin
+      - gensyn-axl-messaging-plugin
+      - uniswap-swap-plugin
     ports:
       - "80:80"
       - "443:443"

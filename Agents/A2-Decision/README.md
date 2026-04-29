@@ -1,3 +1,9 @@
 Agent 2 — Decision Agent
 
-Calculates a risk-adjusted score for the current FX rate. Weighs four inputs: live exchange rate vs baseline (e.g. 11:00 UTC), spread percentage, off-ramp fee (Uniswap), and merchant risk tolerance (from ENS). Returns a HOLD or CONVERT decision with confidence and reasoning. Receives live conditions from Monitor, executes via Execution Agent, reports outcome back to Orchestrator. Can override active decisions if conditions shift during execution.
+Calculates a risk-adjusted score for the current FX rate. Weighs live quote, baseline rate, spread, Uniswap fee/price impact, and merchant risk tolerance from ENS/registry config. Returns a HOLD or CONVERT decision with confidence and reasoning.
+
+Sponsor-visible plugin implementation:
+
+- `Plugin-CounterAgent-DecisionScoring/` exposes `GET /healthz` and `POST /decision/evaluate`.
+- A2 never executes swaps and never receives private keys.
+- A0 should call A2 after it has a quote from A3 or market data from A1.

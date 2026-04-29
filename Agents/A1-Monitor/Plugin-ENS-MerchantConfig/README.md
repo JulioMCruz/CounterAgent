@@ -1,6 +1,10 @@
-# CounterAgent Monitor Plugin
+# CounterAgent ENS Merchant Config Plugin
 
 HTTP service for the ENS/Monitor agent.
+
+Sponsor-visible OpenClaw plugin name: **ENS Merchant Config**.
+
+This plugin demonstrates ENS as the decentralized merchant configuration layer for CounterAgent.
 
 ## Responsibilities
 
@@ -19,7 +23,7 @@ GET /ens/config/:name
 ## Setup
 
 ```bash
-cd Agents/A1-Monitor/Plugin-CounterAgent
+cd Agents/A1-Monitor/Plugin-ENS-MerchantConfig
 cp .env.example .env
 npm install
 npm run build
