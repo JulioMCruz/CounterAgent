@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import { BuildBadge } from '@/components/build-badge'
 import { Providers } from '@/components/providers'
 import './globals.css'
 
@@ -22,6 +23,9 @@ export default function RootLayout({
     <html lang="en" className="bg-background">
       <body className="font-sans antialiased">
         <Providers>{children}</Providers>
+        <div className="fixed bottom-3 left-3 z-[9999]">
+          <BuildBadge />
+        </div>
       </body>
     </html>
   )
