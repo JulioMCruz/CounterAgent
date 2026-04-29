@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Slider } from "@/components/ui/slider"
 import { BuildBadge } from "@/components/build-badge"
 import { SessionHeaderActions } from "@/components/session-header-actions"
-import { prepareOnboarding, startOnboarding } from "@/lib/a0"
+import { prepareOnboarding, startOnboarding, type OnboardingPrepareResponse } from "@/lib/a0"
 import {
   activeChain,
   merchantRegistryAddress,
@@ -52,6 +52,7 @@ export default function OnboardingPage() {
   const [reportUri, setReportUri] = useState<string | null>(null)
   const [isActivating, setIsActivating] = useState(false)
   const [isSwitchingNetwork, setIsSwitchingNetwork] = useState(false)
+  const [preparedRegistration, setPreparedRegistration] = useState<OnboardingPrepareResponse | null>(null)
 
   const connectedToTargetChain = chainId === activeChain.id
 
@@ -104,16 +105,25 @@ export default function OnboardingPage() {
       const fxThresholdBps = Math.round(threshold[0] * 100) // 0.5% → 50 bps
       const merchantEnsName = `${merchantSlug}.${ensParent}`
 
-      setStatusText("A0 is preparing delegated registry authorization…")
-      const prepared = await prepareOnboarding({
-        walletAddress: address,
-        chainId: activeChain.id,
-        ensName: merchantEnsName,
-        fxThresholdBps,
-        riskTolerance,
-        preferredStablecoin: preferredCoin,
-        telegramChat,
-      })
+      let prepared = preparedRegistration
+      if (!prepared) {
+        setStatusText("A0 is preparing delegated registry authorization…")
+        prepared = await prepareOnboarding({
+          walletAddress: address,
+          chainId: activeChain.id,
+          ensName: merchantEnsName,
+          fxThresholdBps,
+          riskTolerance,
+          preferredStablecoin: preferredCoin,
+          telegramChat,
+        })
+        setPreparedRegistration(prepared)
+        setDebugText(
+          `prepared nonce=${prepared.message.nonce} deadline=${prepared.message.deadline} registry=${prepared.domain.verifyingContract.slice(0, 6)}…${prepared.domain.verifyingContract.slice(-4)}`
+        )
+        setStatusText("Authorization prepared. Click Sign registration authorization to open your wallet.")
+        return
+      }
       setDebugText(
         `prepared nonce=${prepared.message.nonce} deadline=${prepared.message.deadline} registry=${prepared.domain.verifyingContract.slice(0, 6)}…${prepared.domain.verifyingContract.slice(-4)}`
       )
@@ -129,6 +139,7 @@ export default function OnboardingPage() {
           deadline: BigInt(prepared.message.deadline),
         },
       })
+      setPreparedRegistration(null)
       setDebugText(`signature=${registrationSignature.slice(0, 10)}… len=${registrationSignature.length}`)
 
       setStatusText("A0 is registering your treasury and provisioning ENS…")
@@ -234,7 +245,7 @@ export default function OnboardingPage() {
                 <Input
                   placeholder="your-store"
                   value={merchantSlug}
-                  onChange={(e) => setMerchantSlug(sanitizeMerchantSlug(e.target.value))}
+                  onChange={(e) => { setPreparedRegistration(null); setMerchantSlug(sanitizeMerchantSlug(e.target.value)) }}
                   className="rounded-none border-0 bg-transparent focus-visible:ring-0"
                 />
                 <span className="flex items-center border-l border-border px-3 text-sm font-medium text-muted-foreground">
@@ -253,7 +264,7 @@ export default function OnboardingPage() {
               <label className="mb-3 block text-sm font-semibold text-foreground">FX Conversion Threshold</label>
               <Slider
                 value={threshold}
-                onValueChange={setThreshold}
+                onValueChange={(value) => { setPreparedRegistration(null); setThreshold(value) }}
                 max={2}
                 min={0}
                 step={0.1}
@@ -275,7 +286,7 @@ export default function OnboardingPage() {
                 {riskLevels.map((level) => (
                   <button
                     key={level}
-                    onClick={() => setRiskTolerance(level)}
+                    onClick={() => { setPreparedRegistration(null); setRiskTolerance(level) }}
                     className={`rounded-lg px-3 py-2.5 text-xs font-semibold transition-colors ${
                       riskTolerance === level
                         ? "bg-header-bg text-header-foreground"
@@ -296,7 +307,7 @@ export default function OnboardingPage() {
               <Input
                 placeholder="@yourchat or chat ID"
                 value={telegramChat}
-                onChange={(e) => setTelegramChat(e.target.value)}
+                onChange={(e) => { setPreparedRegistration(null); setTelegramChat(e.target.value) }}
                 className="bg-secondary"
               />
             </CardContent>
@@ -311,7 +322,7 @@ export default function OnboardingPage() {
               {stablecoins.map((coin) => (
                 <button
                   key={coin}
-                  onClick={() => setPreferredCoin(coin)}
+                  onClick={() => { setPreparedRegistration(null); setPreferredCoin(coin) }}
                   className={`flex-1 rounded-lg px-3 py-2.5 text-sm font-bold transition-colors ${
                     preferredCoin === coin
                       ? "bg-primary text-primary-foreground"
@@ -382,6 +393,8 @@ export default function OnboardingPage() {
             "Choose your merchant subname"
           ) : !connectedToTargetChain ? (
             `Switch to ${activeChain.name} first`
+          ) : preparedRegistration ? (
+            "Sign registration authorization"
           ) : (
             <>Activate {merchantSlug}.{ensParent} &rarr;</>
           )}
