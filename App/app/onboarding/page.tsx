@@ -47,12 +47,14 @@ export default function OnboardingPage() {
   const [preferredCoin, setPreferredCoin] = useState<typeof stablecoins[number]>("USDC")
   const [error, setError] = useState<string | null>(null)
   const [statusText, setStatusText] = useState<string | null>(null)
+  const [debugText, setDebugText] = useState<string | null>(null)
   const [reportUri, setReportUri] = useState<string | null>(null)
   const [isActivating, setIsActivating] = useState(false)
 
   async function handleActivate() {
     setError(null)
     setStatusText(null)
+    setDebugText(null)
     setReportUri(null)
 
     if (!address) {
@@ -70,10 +72,12 @@ export default function OnboardingPage() {
 
     try {
       setIsActivating(true)
+      setDebugText(`wallet=${address.slice(0, 6)}…${address.slice(-4)} chain=${chainId} target=${activeChain.id}`)
 
       if (chainId !== activeChain.id) {
         setStatusText(`Switching wallet to ${activeChain.name}…`)
         await switchChainAsync({ chainId: activeChain.id })
+        setDebugText(`wallet=${address.slice(0, 6)}…${address.slice(-4)} switchedTo=${activeChain.id}`)
       }
 
       const fxThresholdBps = Math.round(threshold[0] * 100) // 0.5% → 50 bps
@@ -89,6 +93,9 @@ export default function OnboardingPage() {
         preferredStablecoin: preferredCoin,
         telegramChat,
       })
+      setDebugText(
+        `prepared nonce=${prepared.message.nonce} deadline=${prepared.message.deadline} registry=${prepared.domain.verifyingContract.slice(0, 6)}…${prepared.domain.verifyingContract.slice(-4)}`
+      )
 
       setStatusText("Sign the CounterAgent registration authorization…")
       const registrationSignature = await signTypedDataAsync({
@@ -101,6 +108,7 @@ export default function OnboardingPage() {
           deadline: BigInt(prepared.message.deadline),
         },
       })
+      setDebugText(`signature=${registrationSignature.slice(0, 10)}… len=${registrationSignature.length}`)
 
       setStatusText("A0 is registering your treasury and provisioning ENS…")
       const onboarding = await startOnboarding({
@@ -121,6 +129,7 @@ export default function OnboardingPage() {
       if (!onboarding.ok) {
         throw new Error(onboarding.error || "Orchestrator onboarding failed")
       }
+      setDebugText(`A0 status=${onboarding.status ?? "ok"} tx=${onboarding.registryTxHash?.slice(0, 10) ?? "n/a"}`)
 
       if (onboarding.report?.storageUri) {
         setReportUri(onboarding.report.storageUri)
@@ -306,6 +315,12 @@ export default function OnboardingPage() {
 
         {error && (
           <p className="rounded-lg bg-destructive/10 px-4 py-2 text-center text-xs text-destructive">{error}</p>
+        )}
+
+        {debugText && (
+          <p className="rounded-lg bg-secondary px-4 py-2 text-center font-mono text-[11px] text-muted-foreground">
+            Debug: {debugText}
+          </p>
         )}
 
         {/* Activate */}
