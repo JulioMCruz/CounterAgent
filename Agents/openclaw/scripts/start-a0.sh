@@ -5,7 +5,7 @@ cd /opt/perkos-agents
 
 if [[ ! -f .env ]]; then
   echo "Missing /opt/perkos-agents/.env"
-  echo "Copy deploy/perkos-cloud-02/.env.example to /opt/perkos-agents/.env and fill OPENAI_API_KEY + tokens."
+  echo "Copy the deployment env template to /opt/perkos-agents/.env and fill the required API keys and tokens."
   exit 1
 fi
 

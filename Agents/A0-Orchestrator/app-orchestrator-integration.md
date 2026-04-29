@@ -91,7 +91,7 @@ The App should:
 
 ## Plugin vs sidecar
 
-Best hackathon path: implement a small Orchestrator HTTPS plugin/sidecar first.
+Recommended path: implement a small Orchestrator HTTPS plugin/sidecar first.
 
 - Short term: simple Express/Fastify service inside the Orchestrator container or alongside it.
 - Medium term: convert it into a formal OpenClaw plugin if deeper runtime integration is needed.
