@@ -6,7 +6,7 @@ import Link from "next/link"
 import { Zap, Check, ArrowLeft, Loader2 } from "lucide-react"
 import { keccak256, toBytes } from "viem"
 import { readContract } from "wagmi/actions"
-import { useAccount, useSignTypedData } from "wagmi"
+import { useAccount, useChainId, useSignTypedData, useSwitchChain } from "wagmi"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -52,6 +52,8 @@ function sanitizeMerchantSlug(value: string) {
 export default function OnboardingPage() {
   const router = useRouter()
   const { address } = useAccount()
+  const chainId = useChainId()
+  const { switchChainAsync } = useSwitchChain()
   const { signTypedDataAsync, isPending: isSigning } = useSignTypedData()
 
   const [currentStep, setCurrentStep] = useState(1)
@@ -84,13 +86,19 @@ export default function OnboardingPage() {
     }
 
     try {
+      setIsActivating(true)
+
+      if (chainId !== activeChain.id) {
+        setStatusText(`Switching wallet to ${activeChain.name}…`)
+        await switchChainAsync({ chainId: activeChain.id })
+      }
+
       const fxThresholdBps = Math.round(threshold[0] * 100) // 0.5% → 50 bps
       const riskValue = RiskTolerance[riskTolerance]
       const stablecoin = stablecoinAddresses[preferredCoin]
       const merchantEnsName = `${merchantSlug}.${ensParent}`
       const chatBytes32 = keccak256(toBytes(telegramChat || merchantEnsName || address))
 
-      setIsActivating(true)
       setStatusText("Preparing delegated registry authorization…")
       const nonce = await readContract(wagmiConfig, {
         address: merchantRegistryAddress,
@@ -155,7 +163,15 @@ export default function OnboardingPage() {
       router.push("/dashboard")
     } catch (e) {
       const message = e instanceof Error ? e.message : "Registration failed"
-      setError(message)
+      setError(
+        message.includes("User rejected") || message.includes("rejected")
+          ? "Wallet signature was rejected. Please try again and approve the CounterAgent registration authorization."
+          : message.includes("chain") || message.includes("network")
+          ? `Wallet network issue. Please switch to ${activeChain.name} and try again.`
+          : message.includes("RPC") || message.includes("rpc")
+          ? "RPC error while preparing the registration. Please retry; if it repeats, send this exact error."
+          : message
+      )
     } finally {
       setIsActivating(false)
     }
