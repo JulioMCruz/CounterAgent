@@ -6,7 +6,7 @@ import { DynamicWidget } from "@dynamic-labs/sdk-react-core"
 import { useAccount, useChainId, useReadContract, useSwitchChain } from "wagmi"
 import { resolveSession } from "@/lib/a0"
 import { merchantRegistryAbi } from "@/lib/merchant-registry-abi"
-import { activeChain, merchantRegistryAddress, merchantRegistryConfigured } from "@/lib/registry"
+import { activeChain, activeChainSwitchParams, merchantRegistryAddress, merchantRegistryConfigured } from "@/lib/registry"
 
 const dynamicConfigured = Boolean(process.env.NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID)
 
@@ -34,7 +34,7 @@ export function ConnectAndRoute() {
     setNetworkStatus(`Requesting ${activeChain.name} in your wallet…`)
     setIsSwitchingNetwork(true)
     try {
-      await switchChainAsync({ chainId: activeChain.id })
+      await switchChainAsync(activeChainSwitchParams)
       setNetworkStatus(`Connected to ${activeChain.name}. Continuing…`)
     } catch (wagmiError) {
       try {

@@ -14,6 +14,7 @@ import { SessionHeaderActions } from "@/components/session-header-actions"
 import { prepareOnboarding, startOnboarding, type OnboardingPrepareResponse } from "@/lib/a0"
 import {
   activeChain,
+  activeChainSwitchParams,
   merchantRegistryAddress,
   merchantRegistryConfigured,
 } from "@/lib/registry"
@@ -62,7 +63,7 @@ export default function OnboardingPage() {
     setDebugText(`wallet=${address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "n/a"} chain=${chainId} target=${activeChain.id}`)
     setIsSwitchingNetwork(true)
     try {
-      await switchChainAsync({ chainId: activeChain.id })
+      await switchChainAsync(activeChainSwitchParams)
       setStatusText(`Wallet switched to ${activeChain.name}. You can activate now.`)
     } catch (e) {
       const message = e instanceof Error ? e.message : "Network switch failed"

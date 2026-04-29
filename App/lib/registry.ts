@@ -3,6 +3,17 @@ import { base, baseSepolia } from "wagmi/chains"
 export const activeChain =
   process.env.NEXT_PUBLIC_CHAIN === "base" ? base : baseSepolia
 
+export const activeChainSwitchParams = {
+  chainId: activeChain.id,
+  addEthereumChainParameter: {
+    chainName: activeChain.name,
+    nativeCurrency: activeChain.nativeCurrency,
+    rpcUrls: activeChain.id === base.id ? ["https://mainnet.base.org"] : ["https://sepolia.base.org"],
+    blockExplorerUrls:
+      activeChain.id === base.id ? ["https://basescan.org"] : ["https://sepolia.basescan.org"],
+  },
+} as const
+
 export const merchantRegistryAddress = process.env
   .NEXT_PUBLIC_MERCHANT_REGISTRY_ADDRESS as `0x${string}` | undefined
 
