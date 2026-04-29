@@ -50,6 +50,27 @@ export default function OnboardingPage() {
   const [debugText, setDebugText] = useState<string | null>(null)
   const [reportUri, setReportUri] = useState<string | null>(null)
   const [isActivating, setIsActivating] = useState(false)
+  const [isSwitchingNetwork, setIsSwitchingNetwork] = useState(false)
+
+  const connectedToTargetChain = chainId === activeChain.id
+
+  async function handleSwitchNetwork() {
+    setError(null)
+    setStatusText(`Requesting wallet network switch to ${activeChain.name}…`)
+    setDebugText(`wallet=${address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "n/a"} chain=${chainId} target=${activeChain.id}`)
+    setIsSwitchingNetwork(true)
+    try {
+      await switchChainAsync({ chainId: activeChain.id })
+      setStatusText(`Wallet switched to ${activeChain.name}. You can activate now.`)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Network switch failed"
+      setError(
+        `${message}. Please switch your wallet manually to ${activeChain.name} (chain ID ${activeChain.id}) and try again.`
+      )
+    } finally {
+      setIsSwitchingNetwork(false)
+    }
+  }
 
   async function handleActivate() {
     setError(null)
@@ -75,9 +96,8 @@ export default function OnboardingPage() {
       setDebugText(`wallet=${address.slice(0, 6)}…${address.slice(-4)} chain=${chainId} target=${activeChain.id}`)
 
       if (chainId !== activeChain.id) {
-        setStatusText(`Switching wallet to ${activeChain.name}…`)
-        await switchChainAsync({ chainId: activeChain.id })
-        setDebugText(`wallet=${address.slice(0, 6)}…${address.slice(-4)} switchedTo=${activeChain.id}`)
+        setError(`Please switch your wallet to ${activeChain.name} before activating.`)
+        return
       }
 
       const fxThresholdBps = Math.round(threshold[0] * 100) // 0.5% → 50 bps
@@ -317,6 +337,25 @@ export default function OnboardingPage() {
           <p className="rounded-lg bg-destructive/10 px-4 py-2 text-center text-xs text-destructive">{error}</p>
         )}
 
+        {address && !connectedToTargetChain && (
+          <Card className="border-primary/30 bg-primary/5">
+            <CardContent className="flex flex-col gap-3 px-4 py-4 text-center">
+              <div>
+                <p className="text-sm font-bold text-foreground">Wrong wallet network</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  CounterAgent onboarding runs on {activeChain.name} (chain ID {activeChain.id}). Switch networks before activating.
+                </p>
+              </div>
+              <Button type="button" onClick={handleSwitchNetwork} disabled={isSwitchingNetwork} className="w-full rounded-xl">
+                {isSwitchingNetwork ? "Requesting network switch…" : `Switch to ${activeChain.name}`}
+              </Button>
+              <p className="text-[11px] text-muted-foreground">
+                If your wallet does not open a popup, switch manually in the wallet network selector and return here.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         {debugText && (
           <p className="rounded-lg bg-secondary px-4 py-2 text-center font-mono text-[11px] text-muted-foreground">
             Debug: {debugText}
@@ -327,7 +366,7 @@ export default function OnboardingPage() {
         <Button
           size="lg"
           onClick={handleActivate}
-          disabled={isActivating || isSigning || !address || !merchantSlug}
+          disabled={isActivating || isSigning || !address || !merchantSlug || !connectedToTargetChain}
           className="w-full rounded-xl bg-primary py-6 text-base font-bold text-primary-foreground shadow-lg hover:bg-primary/90 disabled:opacity-60 lg:mx-auto lg:max-w-md"
         >
           {isActivating || isSigning ? (
@@ -339,6 +378,8 @@ export default function OnboardingPage() {
             "Connect wallet to activate"
           ) : !merchantSlug ? (
             "Choose your merchant subname"
+          ) : !connectedToTargetChain ? (
+            `Switch to ${activeChain.name} first`
           ) : (
             <>Activate {merchantSlug}.{ensParent} &rarr;</>
           )}
