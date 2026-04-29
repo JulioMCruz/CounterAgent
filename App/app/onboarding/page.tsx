@@ -4,21 +4,18 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Zap, Check, ArrowLeft, Loader2 } from "lucide-react"
-import { keccak256, toBytes } from "viem"
-import { useAccount, useWriteContract } from "wagmi"
+import { useAccount, useChainId, useSignTypedData, useSwitchChain } from "wagmi"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Slider } from "@/components/ui/slider"
 import { SessionHeaderActions } from "@/components/session-header-actions"
-import { startOnboarding } from "@/lib/a0"
-import { merchantRegistryAbi } from "@/lib/merchant-registry-abi"
+import { prepareOnboarding, startOnboarding, type OnboardingPrepareResponse } from "@/lib/a0"
 import {
   activeChain,
+  activeChainSwitchParams,
   merchantRegistryAddress,
   merchantRegistryConfigured,
-  RiskTolerance,
-  stablecoinAddresses,
 } from "@/lib/registry"
 
 const steps = ["Connect", "Configure", "Active"]
@@ -39,7 +36,9 @@ function sanitizeMerchantSlug(value: string) {
 export default function OnboardingPage() {
   const router = useRouter()
   const { address } = useAccount()
-  const { writeContractAsync, isPending } = useWriteContract()
+  const chainId = useChainId()
+  const { switchChainAsync } = useSwitchChain()
+  const { signTypedDataAsync, isPending: isSigning } = useSignTypedData()
 
   const [currentStep, setCurrentStep] = useState(1)
   const [merchantSlug, setMerchantSlug] = useState("")
@@ -49,11 +48,36 @@ export default function OnboardingPage() {
   const [preferredCoin, setPreferredCoin] = useState<typeof stablecoins[number]>("USDC")
   const [error, setError] = useState<string | null>(null)
   const [statusText, setStatusText] = useState<string | null>(null)
+  const [debugText, setDebugText] = useState<string | null>(null)
   const [reportUri, setReportUri] = useState<string | null>(null)
+  const [isActivating, setIsActivating] = useState(false)
+  const [isSwitchingNetwork, setIsSwitchingNetwork] = useState(false)
+  const [preparedRegistration, setPreparedRegistration] = useState<OnboardingPrepareResponse | null>(null)
+
+  const connectedToTargetChain = chainId === activeChain.id
+
+  async function handleSwitchNetwork() {
+    setError(null)
+    setStatusText(`Requesting wallet network switch to ${activeChain.name}…`)
+    setDebugText(`wallet=${address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "n/a"} chain=${chainId} target=${activeChain.id}`)
+    setIsSwitchingNetwork(true)
+    try {
+      await switchChainAsync(activeChainSwitchParams)
+      setStatusText(`Wallet switched to ${activeChain.name}. You can activate now.`)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Network switch failed"
+      setError(
+        `${message}. Please switch your wallet manually to ${activeChain.name} (chain ID ${activeChain.id}) and try again.`
+      )
+    } finally {
+      setIsSwitchingNetwork(false)
+    }
+  }
 
   async function handleActivate() {
     setError(null)
     setStatusText(null)
+    setDebugText(null)
     setReportUri(null)
 
     if (!address) {
@@ -70,21 +94,55 @@ export default function OnboardingPage() {
     }
 
     try {
+      setIsActivating(true)
+      setDebugText(`wallet=${address.slice(0, 6)}…${address.slice(-4)} chain=${chainId} target=${activeChain.id}`)
+
+      if (chainId !== activeChain.id) {
+        setError(`Please switch your wallet to ${activeChain.name} before activating.`)
+        return
+      }
+
       const fxThresholdBps = Math.round(threshold[0] * 100) // 0.5% → 50 bps
-      const riskValue = RiskTolerance[riskTolerance]
-      const stablecoin = stablecoinAddresses[preferredCoin]
       const merchantEnsName = `${merchantSlug}.${ensParent}`
-      const chatBytes32 = keccak256(toBytes(telegramChat || merchantEnsName || address))
 
-      setStatusText("Registering treasury config on Base Sepolia…")
-      const registryTxHash = await writeContractAsync({
-        address: merchantRegistryAddress,
-        abi: merchantRegistryAbi,
-        functionName: "register",
-        args: [fxThresholdBps, riskValue, stablecoin, chatBytes32],
+      let prepared = preparedRegistration
+      if (!prepared) {
+        setStatusText("A0 is preparing delegated registry authorization…")
+        prepared = await prepareOnboarding({
+          walletAddress: address,
+          chainId: activeChain.id,
+          ensName: merchantEnsName,
+          fxThresholdBps,
+          riskTolerance,
+          preferredStablecoin: preferredCoin,
+          telegramChat,
+        })
+        setPreparedRegistration(prepared)
+        setDebugText(
+          `prepared nonce=${prepared.message.nonce} deadline=${prepared.message.deadline} registry=${prepared.domain.verifyingContract.slice(0, 6)}…${prepared.domain.verifyingContract.slice(-4)}`
+        )
+        setStatusText("Authorization prepared. Click Sign registration authorization to open your wallet.")
+        return
+      }
+      setDebugText(
+        `prepared nonce=${prepared.message.nonce} deadline=${prepared.message.deadline} registry=${prepared.domain.verifyingContract.slice(0, 6)}…${prepared.domain.verifyingContract.slice(-4)}`
+      )
+
+      setStatusText("Sign the CounterAgent registration authorization…")
+      const registrationSignature = await signTypedDataAsync({
+        domain: prepared.domain,
+        types: prepared.types,
+        primaryType: prepared.primaryType,
+        message: {
+          ...prepared.message,
+          nonce: BigInt(prepared.message.nonce),
+          deadline: BigInt(prepared.message.deadline),
+        },
       })
+      setPreparedRegistration(null)
+      setDebugText(`signature=${registrationSignature.slice(0, 10)}… len=${registrationSignature.length}`)
 
-      setStatusText("Provisioning ENS records through the Orchestrator…")
+      setStatusText("A0 is registering your treasury and provisioning ENS…")
       const onboarding = await startOnboarding({
         walletAddress: address,
         chainId: activeChain.id,
@@ -95,13 +153,15 @@ export default function OnboardingPage() {
         riskTolerance,
         preferredStablecoin: preferredCoin,
         telegramChat,
-        registryTxHash,
+        registrationSignature,
+        registrationDeadline: prepared.message.deadline,
         idempotencyKey: `${activeChain.id}:${address.toLowerCase()}:${merchantSlug}`,
       })
 
       if (!onboarding.ok) {
         throw new Error(onboarding.error || "Orchestrator onboarding failed")
       }
+      setDebugText(`A0 status=${onboarding.status ?? "ok"} tx=${onboarding.registryTxHash?.slice(0, 10) ?? "n/a"}`)
 
       if (onboarding.report?.storageUri) {
         setReportUri(onboarding.report.storageUri)
@@ -116,7 +176,17 @@ export default function OnboardingPage() {
       router.push("/dashboard")
     } catch (e) {
       const message = e instanceof Error ? e.message : "Registration failed"
-      setError(message)
+      setError(
+        message.includes("User rejected") || message.includes("rejected")
+          ? "Wallet signature was rejected. Please try again and approve the CounterAgent registration authorization."
+          : message.includes("chain") || message.includes("network")
+          ? `Wallet network issue. Please switch to ${activeChain.name} and try again.`
+          : message.includes("RPC") || message.includes("rpc")
+          ? "RPC error while preparing the registration. Please retry; if it repeats, send this exact error."
+          : message
+      )
+    } finally {
+      setIsActivating(false)
     }
   }
 
@@ -174,7 +244,7 @@ export default function OnboardingPage() {
                 <Input
                   placeholder="your-store"
                   value={merchantSlug}
-                  onChange={(e) => setMerchantSlug(sanitizeMerchantSlug(e.target.value))}
+                  onChange={(e) => { setPreparedRegistration(null); setMerchantSlug(sanitizeMerchantSlug(e.target.value)) }}
                   className="rounded-none border-0 bg-transparent focus-visible:ring-0"
                 />
                 <span className="flex items-center border-l border-border px-3 text-sm font-medium text-muted-foreground">
@@ -193,7 +263,7 @@ export default function OnboardingPage() {
               <label className="mb-3 block text-sm font-semibold text-foreground">FX Conversion Threshold</label>
               <Slider
                 value={threshold}
-                onValueChange={setThreshold}
+                onValueChange={(value) => { setPreparedRegistration(null); setThreshold(value) }}
                 max={2}
                 min={0}
                 step={0.1}
@@ -215,7 +285,7 @@ export default function OnboardingPage() {
                 {riskLevels.map((level) => (
                   <button
                     key={level}
-                    onClick={() => setRiskTolerance(level)}
+                    onClick={() => { setPreparedRegistration(null); setRiskTolerance(level) }}
                     className={`rounded-lg px-3 py-2.5 text-xs font-semibold transition-colors ${
                       riskTolerance === level
                         ? "bg-header-bg text-header-foreground"
@@ -236,7 +306,7 @@ export default function OnboardingPage() {
               <Input
                 placeholder="@yourchat or chat ID"
                 value={telegramChat}
-                onChange={(e) => setTelegramChat(e.target.value)}
+                onChange={(e) => { setPreparedRegistration(null); setTelegramChat(e.target.value) }}
                 className="bg-secondary"
               />
             </CardContent>
@@ -251,7 +321,7 @@ export default function OnboardingPage() {
               {stablecoins.map((coin) => (
                 <button
                   key={coin}
-                  onClick={() => setPreferredCoin(coin)}
+                  onClick={() => { setPreparedRegistration(null); setPreferredCoin(coin) }}
                   className={`flex-1 rounded-lg px-3 py-2.5 text-sm font-bold transition-colors ${
                     preferredCoin === coin
                       ? "bg-primary text-primary-foreground"
@@ -279,14 +349,39 @@ export default function OnboardingPage() {
           <p className="rounded-lg bg-destructive/10 px-4 py-2 text-center text-xs text-destructive">{error}</p>
         )}
 
+        {address && !connectedToTargetChain && (
+          <Card className="border-primary/30 bg-primary/5">
+            <CardContent className="flex flex-col gap-3 px-4 py-4 text-center">
+              <div>
+                <p className="text-sm font-bold text-foreground">Wrong wallet network</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  CounterAgent onboarding runs on {activeChain.name} (chain ID {activeChain.id}). Switch networks before activating.
+                </p>
+              </div>
+              <Button type="button" onClick={handleSwitchNetwork} disabled={isSwitchingNetwork} className="w-full rounded-xl">
+                {isSwitchingNetwork ? "Requesting network switch…" : `Switch to ${activeChain.name}`}
+              </Button>
+              <p className="text-[11px] text-muted-foreground">
+                If your wallet does not open a popup, switch manually in the wallet network selector and return here.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {debugText && (
+          <p className="rounded-lg bg-secondary px-4 py-2 text-center font-mono text-[11px] text-muted-foreground">
+            Debug: {debugText}
+          </p>
+        )}
+
         {/* Activate */}
         <Button
           size="lg"
           onClick={handleActivate}
-          disabled={isPending || !address || !merchantSlug}
+          disabled={isActivating || isSigning || !address || !merchantSlug || !connectedToTargetChain}
           className="w-full rounded-xl bg-primary py-6 text-base font-bold text-primary-foreground shadow-lg hover:bg-primary/90 disabled:opacity-60 lg:mx-auto lg:max-w-md"
         >
-          {isPending ? (
+          {isActivating || isSigning ? (
             <span className="flex items-center justify-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
               Activating treasury…
@@ -295,6 +390,10 @@ export default function OnboardingPage() {
             "Connect wallet to activate"
           ) : !merchantSlug ? (
             "Choose your merchant subname"
+          ) : !connectedToTargetChain ? (
+            `Switch to ${activeChain.name} first`
+          ) : preparedRegistration ? (
+            "Sign registration authorization"
           ) : (
             <>Activate {merchantSlug}.{ensParent} &rarr;</>
           )}

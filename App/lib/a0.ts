@@ -35,7 +35,42 @@ export type OnboardingRequest = {
   preferredStablecoin: "USDC" | "EURC" | "USDT"
   telegramChat?: string
   registryTxHash?: `0x${string}`
+  registrationSignature?: `0x${string}`
+  registrationDeadline?: number
   idempotencyKey?: string
+}
+
+export type OnboardingPrepareRequest = {
+  walletAddress: `0x${string}`
+  chainId: number
+  ensName?: string
+  fxThresholdBps: number
+  riskTolerance: "Conservative" | "Moderate" | "Aggressive"
+  preferredStablecoin: "USDC" | "EURC" | "USDT"
+  telegramChat?: string
+}
+
+export type OnboardingPrepareResponse = {
+  ok: true
+  domain: {
+    name: string
+    version: string
+    chainId: number
+    verifyingContract: `0x${string}`
+  }
+  types: {
+    Register: readonly { name: string; type: string }[]
+  }
+  primaryType: "Register"
+  message: {
+    merchant: `0x${string}`
+    fxThresholdBps: number
+    risk: number
+    preferredStablecoin: `0x${string}`
+    telegramChatId: `0x${string}`
+    nonce: string
+    deadline: number
+  }
 }
 
 export type ReportPointer = {
@@ -53,6 +88,7 @@ export type OnboardingResponse = {
   onboardingId?: string
   status?: string
   next?: string
+  registryTxHash?: `0x${string}`
   ens?: unknown
   report?: ReportPointer | null
   reportWarning?: string
@@ -140,6 +176,20 @@ export async function startOnboarding(input: OnboardingRequest) {
   }
 
   return res.json() as Promise<OnboardingResponse>
+}
+
+export async function prepareOnboarding(input: OnboardingPrepareRequest) {
+  const res = await fetch(`${orchestratorUrl}/onboarding/prepare`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  })
+
+  if (!res.ok) {
+    throw new Error(`Orchestrator onboarding prepare failed: ${res.status}`)
+  }
+
+  return res.json() as Promise<OnboardingPrepareResponse>
 }
 
 export async function evaluateWorkflow(input: WorkflowEvaluateRequest) {

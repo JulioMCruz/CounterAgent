@@ -6,6 +6,7 @@ import { EthereumWalletConnectors } from "@dynamic-labs/ethereum"
 import { DynamicWagmiConnector } from "@dynamic-labs/wagmi-connector"
 import { WagmiProvider } from "wagmi"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { dynamicEvmNetworks } from "@/lib/registry"
 import { wagmiConfig } from "@/lib/wagmi"
 
 const queryClient = new QueryClient()
@@ -34,6 +35,15 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <DynamicContextProvider
       settings={{
         environmentId: dynamicEnvironmentId!,
+        overrides: {
+          evmNetworks: (dashboardNetworks) => {
+            const merged = [...dynamicEvmNetworks, ...dashboardNetworks]
+            return merged.filter(
+              (network, index, networks) =>
+                networks.findIndex((candidate) => Number(candidate.chainId) === Number(network.chainId)) === index
+            )
+          },
+        },
         walletConnectors: [EthereumWalletConnectors],
       }}
     >

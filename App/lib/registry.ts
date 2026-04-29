@@ -3,6 +3,50 @@ import { base, baseSepolia } from "wagmi/chains"
 export const activeChain =
   process.env.NEXT_PUBLIC_CHAIN === "base" ? base : baseSepolia
 
+export const activeChainSwitchParams = {
+  chainId: activeChain.id,
+  addEthereumChainParameter: {
+    chainName: activeChain.name,
+    nativeCurrency: activeChain.nativeCurrency,
+    rpcUrls: activeChain.id === base.id ? ["https://mainnet.base.org"] : ["https://sepolia.base.org"],
+    blockExplorerUrls:
+      activeChain.id === base.id ? ["https://basescan.org"] : ["https://sepolia.basescan.org"],
+  },
+} as const
+
+export const dynamicEvmNetworks = [
+  {
+    blockExplorerUrls: ["https://sepolia.basescan.org"],
+    chain: "EVM",
+    chainId: baseSepolia.id,
+    chainName: "Base Sepolia",
+    iconUrls: [],
+    isTestnet: true,
+    name: baseSepolia.name,
+    nativeCurrency: baseSepolia.nativeCurrency,
+    networkId: baseSepolia.id,
+    privateCustomerRpcUrls: [],
+    rpcUrls: ["https://sepolia.base.org"],
+    shortName: "base-sepolia",
+    vanityName: "Base Sepolia",
+  },
+  {
+    blockExplorerUrls: ["https://basescan.org"],
+    chain: "EVM",
+    chainId: base.id,
+    chainName: "Base",
+    iconUrls: [],
+    isTestnet: false,
+    name: base.name,
+    nativeCurrency: base.nativeCurrency,
+    networkId: base.id,
+    privateCustomerRpcUrls: [],
+    rpcUrls: ["https://mainnet.base.org"],
+    shortName: "base",
+    vanityName: "Base",
+  },
+]
+
 export const merchantRegistryAddress = process.env
   .NEXT_PUBLIC_MERCHANT_REGISTRY_ADDRESS as `0x${string}` | undefined
 

@@ -151,3 +151,6 @@ docs/
 # Foundry dependencies installed locally; reinstall with forge install.
 Contracts/lib/openzeppelin-contracts/
 Contracts/lib/openzeppelin-contracts-upgradeable/
+
+# ETHSkills fetched on demand
+Agents/.ethskills/

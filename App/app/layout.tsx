@@ -1,12 +1,7 @@
 import type { Metadata, Viewport } from 'next'
-import { Inter } from 'next/font/google'
+import { BuildBadge } from '@/components/build-badge'
 import { Providers } from '@/components/providers'
 import './globals.css'
-
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-})
 
 export const metadata: Metadata = {
   title: 'Counter Agent - Merchant Treasury Co-Pilot',
@@ -26,8 +21,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="bg-background">
-      <body className={`${inter.variable} font-sans antialiased`}>
+      <body className="font-sans antialiased">
         <Providers>{children}</Providers>
+        <footer className="fixed bottom-2 right-3 z-[9999] flex items-center gap-2 text-xs text-muted-foreground">
+          <span>Version</span>
+          <BuildBadge />
+        </footer>
       </body>
     </html>
   )

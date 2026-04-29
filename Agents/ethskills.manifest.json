@@ -1,0 +1,24 @@
+{
+  "source": "https://ethskills.com",
+  "policy": "Install only the ETHSkills needed for the agent's current task; do not vendor the full catalog by default.",
+  "agents": {
+    "A0-Orchestrator": ["wallets", "l2s", "standards", "security", "frontend-ux", "tools", "qa"],
+    "A1-Monitor": ["l2s", "indexing", "tools", "standards"],
+    "A2-Decision": ["gas", "l2s", "building-blocks"],
+    "A3-Execution": ["wallets", "l2s", "building-blocks", "security", "gas", "tools"],
+    "A4-Reporting": ["indexing", "tools", "standards", "security"]
+  },
+  "skills": {
+    "frontend-ux": "Wallet/network/signature UX and dApp pre-publish checks.",
+    "wallets": "Wallet connection, signing, account safety, multisig/account abstraction basics.",
+    "l2s": "Base/Base Sepolia and L2 deployment/bridging differences.",
+    "standards": "ERC/EIP references including ERC-20, ERC-8004, EIP-712, EIP-7702.",
+    "security": "Solidity/signature/relayer and pre-deploy security checklist.",
+    "testing": "Foundry testing guidance for contracts.",
+    "qa": "Independent production QA checklist for dApps.",
+    "tools": "RPCs, explorers, Foundry, x402, and current Ethereum tooling.",
+    "indexing": "Events, reads, indexers, and onchain data access patterns.",
+    "gas": "Current gas/cost mental models and L2 cost tradeoffs.",
+    "building-blocks": "DeFi primitives such as Uniswap and composable money legos."
+  }
+}

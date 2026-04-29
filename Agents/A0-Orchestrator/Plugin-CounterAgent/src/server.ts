@@ -1,16 +1,35 @@
 import cors from '@fastify/cors';
 import Fastify from 'fastify';
 import {
+  createWalletClient,
   createPublicClient,
   http,
   isAddress,
+  keccak256,
+  toBytes,
   type Address,
   type Hex
 } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { base, baseSepolia } from 'viem/chains';
 import { z } from 'zod';
 
 const merchantRegistryAbi = [
+  {
+    type: 'function',
+    name: 'registerFor',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'merchant', type: 'address' },
+      { name: 'fxThresholdBps', type: 'uint16' },
+      { name: 'risk', type: 'uint8' },
+      { name: 'preferredStablecoin', type: 'address' },
+      { name: 'telegramChatId', type: 'bytes32' },
+      { name: 'deadline', type: 'uint256' },
+      { name: 'signature', type: 'bytes' }
+    ],
+    outputs: []
+  },
   {
     type: 'function',
     name: 'isActive',
@@ -56,8 +75,20 @@ const onboardingRequestSchema = z.object({
   preferredStablecoin: z.string().min(1).max(40).optional(),
   telegramChat: z.string().max(120).optional(),
   registryTxHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/).optional(),
+  registrationSignature: z.string().regex(/^0x[a-fA-F0-9]+$/).optional(),
+  registrationDeadline: z.number().int().positive().optional(),
   callbackUrl: z.string().url().optional(),
   idempotencyKey: z.string().min(8).max(120).optional()
+});
+
+const onboardingPrepareSchema = z.object({
+  walletAddress: z.string().refine(isAddress, 'Invalid wallet address'),
+  chainId: z.number().int().positive(),
+  ensName: z.string().min(1).max(255).optional(),
+  fxThresholdBps: z.number().int().min(1).max(10_000),
+  riskTolerance: z.string().min(1).max(40),
+  preferredStablecoin: z.string().min(1).max(40),
+  telegramChat: z.string().max(120).optional()
 });
 
 const tokenSchema = z.enum(['USDC', 'EURC', 'USDT']);
@@ -87,6 +118,7 @@ const corsOrigins = (process.env.CORS_ORIGIN ?? 'https://counteragent.netlify.ap
   .map((origin) => origin.trim())
   .filter(Boolean);
 const merchantRegistryAddress = process.env.MERCHANT_REGISTRY_ADDRESS as Address | undefined;
+const registryRelayerPrivateKey = process.env.REGISTRY_RELAYER_PRIVATE_KEY as Hex | undefined;
 const baseRpcUrl = process.env.BASE_RPC_URL || 'https://sepolia.base.org';
 const defaultChainId = Number(process.env.DEFAULT_CHAIN_ID ?? 84532);
 const monitorAgentUrl = process.env.MONITOR_AGENT_URL;
@@ -95,6 +127,19 @@ const decisionAgentUrl = process.env.DECISION_AGENT_URL;
 const executionAgentUrl = process.env.EXECUTION_AGENT_URL;
 const axlMessagingUrl = process.env.GENSYN_AXL_MESSAGING_URL;
 const ensParentName = process.env.ENS_PARENT_NAME ?? 'counteragent.eth';
+
+const stablecoinAddresses: Record<string, Address> = {
+  USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+  EURC: '0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42',
+  USDT: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2'
+};
+
+const riskValueFor = (risk?: string) => {
+  const normalized = (risk ?? 'moderate').toLowerCase();
+  if (normalized === 'conservative') return 0;
+  if (normalized === 'aggressive') return 2;
+  return 1;
+};
 
 const app = Fastify({ logger: true });
 
@@ -115,6 +160,70 @@ const registryClientFor = (chainId: number) =>
     transport: http(baseRpcUrl)
   });
 
+async function relayDelegatedRegistration(input: {
+  walletAddress: string;
+  chainId: number;
+  fxThresholdBps?: number;
+  riskTolerance?: string;
+  preferredStablecoin?: string;
+  telegramChat?: string;
+  ensName?: string;
+  registrationSignature?: string;
+  registrationDeadline?: number;
+}) {
+  if (!merchantRegistryAddress || !isAddress(merchantRegistryAddress)) {
+    throw new Error('merchant_registry_not_configured');
+  }
+  if (!registryRelayerPrivateKey) {
+    throw new Error('registry_relayer_not_configured');
+  }
+  if (!input.registrationSignature || !input.registrationDeadline) {
+    throw new Error('registration_signature_required');
+  }
+
+  const stablecoinSymbol = input.preferredStablecoin ?? 'USDC';
+  const preferredStablecoin = stablecoinAddresses[stablecoinSymbol];
+  if (!preferredStablecoin) throw new Error('unsupported_stablecoin');
+
+  const fxThresholdBps = input.fxThresholdBps ?? 50;
+  const risk = riskValueFor(input.riskTolerance);
+  const telegramChatId = keccak256(toBytes(input.telegramChat || input.ensName || input.walletAddress));
+
+  const chain = chainFor(input.chainId);
+  const publicClient = registryClientFor(input.chainId);
+  const account = privateKeyToAccount(registryRelayerPrivateKey);
+  const walletClient = createWalletClient({ account, chain, transport: http(baseRpcUrl) });
+
+  const active = await publicClient.readContract({
+    address: merchantRegistryAddress,
+    abi: merchantRegistryAbi,
+    functionName: 'isActive',
+    args: [input.walletAddress as Address]
+  });
+
+  if (active) return { alreadyRegistered: true, transactionHash: undefined as Hex | undefined };
+
+  const transactionHash = await walletClient.writeContract({
+    address: merchantRegistryAddress,
+    abi: merchantRegistryAbi,
+    functionName: 'registerFor',
+    args: [
+      input.walletAddress as Address,
+      fxThresholdBps,
+      risk,
+      preferredStablecoin,
+      telegramChatId,
+      BigInt(input.registrationDeadline),
+      input.registrationSignature as Hex
+    ]
+  });
+
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: transactionHash });
+  if (receipt.status !== 'success') throw new Error('delegated_registration_reverted');
+
+  return { alreadyRegistered: false, transactionHash };
+}
+
 const labelFromEnsName = (ensName?: string) => {
   if (!ensName) return undefined;
   const normalized = ensName.toLowerCase().trim();
@@ -132,7 +241,8 @@ app.get('/healthz', async () => ({
     reportingConfigured: Boolean(reportingAgentUrl),
     decisionConfigured: Boolean(decisionAgentUrl),
     executionConfigured: Boolean(executionAgentUrl),
-    gensynAxlMessagingConfigured: Boolean(axlMessagingUrl)
+    gensynAxlMessagingConfigured: Boolean(axlMessagingUrl),
+    registryRelayerConfigured: Boolean(registryRelayerPrivateKey)
   }
 }));
 
@@ -343,12 +453,40 @@ app.post('/onboarding/start', async (request, reply) => {
     });
   }
 
+  let registryTxHash = onboarding.registryTxHash;
+
+  if (!registryTxHash) {
+    try {
+      const registration = await relayDelegatedRegistration({
+        walletAddress: onboarding.walletAddress,
+        chainId: onboarding.chainId,
+        fxThresholdBps: onboarding.fxThresholdBps,
+        riskTolerance: onboarding.riskTolerance,
+        preferredStablecoin: onboarding.preferredStablecoin,
+        telegramChat: onboarding.telegramChat,
+        ensName: onboarding.ensName ?? `${ensLabel}.${ensParentName}`,
+        registrationSignature: onboarding.registrationSignature,
+        registrationDeadline: onboarding.registrationDeadline
+      });
+      registryTxHash = registration.transactionHash;
+      request.log.info({ onboardingId, registryTxHash, alreadyRegistered: registration.alreadyRegistered }, 'delegated registry registration complete');
+    } catch (error) {
+      request.log.error({ error, onboardingId }, 'delegated registry registration failed');
+      return reply.code(502).send({
+        ok: false,
+        onboardingId,
+        error: error instanceof Error ? error.message : 'delegated_registration_failed'
+      });
+    }
+  }
+
   if (!monitorAgentUrl) {
     return reply.code(202).send({
       ok: true,
       onboardingId,
       status: 'accepted',
       next: 'ens-provisioning-pending',
+      registryTxHash,
       ens: {
         label: ensLabel,
         name: `${ensLabel}.${ensParentName}`,
@@ -393,7 +531,7 @@ app.post('/onboarding/start', async (request, reply) => {
         onboardingId,
         ensName,
         walletAddress: onboarding.walletAddress,
-        registryTxHash: onboarding.registryTxHash,
+        registryTxHash,
         fxThresholdBps: onboarding.fxThresholdBps,
         riskTolerance: onboarding.riskTolerance,
         preferredStablecoin: onboarding.preferredStablecoin,
@@ -409,6 +547,7 @@ app.post('/onboarding/start', async (request, reply) => {
       onboardingId,
       status: 'completed',
       next: 'dashboard',
+      registryTxHash,
       ens,
       report,
       reportWarning
@@ -420,6 +559,80 @@ app.post('/onboarding/start', async (request, reply) => {
       onboardingId,
       error: 'monitor_agent_unreachable'
     });
+  }
+});
+
+app.post('/onboarding/prepare', async (request, reply) => {
+  const parsed = onboardingPrepareSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    return reply.code(400).send({
+      ok: false,
+      error: 'invalid_request',
+      details: parsed.error.flatten()
+    });
+  }
+
+  if (!merchantRegistryAddress || !isAddress(merchantRegistryAddress)) {
+    return reply.code(503).send({ ok: false, error: 'merchant_registry_not_configured' });
+  }
+
+  const input = parsed.data;
+  const stablecoin = stablecoinAddresses[input.preferredStablecoin];
+  if (!stablecoin) return reply.code(400).send({ ok: false, error: 'unsupported_stablecoin' });
+
+  try {
+    const client = registryClientFor(input.chainId);
+    const nonce = await client.readContract({
+      address: merchantRegistryAddress,
+      abi: [
+        {
+          type: 'function',
+          name: 'nonces',
+          stateMutability: 'view',
+          inputs: [{ name: 'merchant', type: 'address' }],
+          outputs: [{ type: 'uint256' }]
+        }
+      ] as const,
+      functionName: 'nonces',
+      args: [input.walletAddress as Address]
+    });
+    const deadline = Math.floor(Date.now() / 1000) + 15 * 60;
+    const telegramChatId = keccak256(toBytes(input.telegramChat || input.ensName || input.walletAddress));
+
+    return reply.send({
+      ok: true,
+      domain: {
+        name: 'CounterAgent MerchantRegistry',
+        version: '1',
+        chainId: chainFor(input.chainId).id,
+        verifyingContract: merchantRegistryAddress
+      },
+      types: {
+        Register: [
+          { name: 'merchant', type: 'address' },
+          { name: 'fxThresholdBps', type: 'uint16' },
+          { name: 'risk', type: 'uint8' },
+          { name: 'preferredStablecoin', type: 'address' },
+          { name: 'telegramChatId', type: 'bytes32' },
+          { name: 'nonce', type: 'uint256' },
+          { name: 'deadline', type: 'uint256' }
+        ]
+      },
+      primaryType: 'Register',
+      message: {
+        merchant: input.walletAddress,
+        fxThresholdBps: input.fxThresholdBps,
+        risk: riskValueFor(input.riskTolerance),
+        preferredStablecoin: stablecoin,
+        telegramChatId,
+        nonce: nonce.toString(),
+        deadline
+      }
+    });
+  } catch (error) {
+    request.log.error({ error }, 'onboarding prepare failed');
+    return reply.code(502).send({ ok: false, error: 'registration_prepare_failed' });
   }
 });
 

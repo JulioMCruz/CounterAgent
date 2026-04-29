@@ -4,7 +4,14 @@ import { useRouter } from "next/navigation"
 import { useDynamicContext } from "@dynamic-labs/sdk-react-core"
 import { useAccount } from "wagmi"
 
+const dynamicConfigured = Boolean(process.env.NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID)
+
 export function SessionHeaderActions() {
+  if (!dynamicConfigured) return null
+  return <DynamicSessionHeaderActions />
+}
+
+function DynamicSessionHeaderActions() {
   const router = useRouter()
   const { handleLogOut } = useDynamicContext()
   const { address } = useAccount()

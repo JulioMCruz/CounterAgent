@@ -9,6 +9,8 @@ contract MerchantRegistryTest is Test {
 
     address internal merchantA = makeAddr("merchantA");
     address internal merchantB = makeAddr("merchantB");
+    uint256 internal merchantCKey = 0xA11CE;
+    address internal merchantC;
     address internal usdc = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913; // USDC on Base
     address internal eurc = 0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42; // EURC on Base
 
@@ -17,6 +19,7 @@ contract MerchantRegistryTest is Test {
 
     function setUp() public {
         registry = new MerchantRegistry();
+        merchantC = vm.addr(merchantCKey);
     }
 
     function test_register_storesConfig() public {
@@ -45,6 +48,64 @@ contract MerchantRegistryTest is Test {
         vm.expectRevert(MerchantRegistry.AlreadyRegistered.selector);
         registry.register(75, MerchantRegistry.RiskTolerance.Aggressive, eurc, chatA);
         vm.stopPrank();
+    }
+
+    function test_registerFor_storesConfigForSignedMerchant() public {
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature = _signRegister(
+            merchantCKey,
+            merchantC,
+            75,
+            MerchantRegistry.RiskTolerance.Aggressive,
+            eurc,
+            chatB,
+            registry.nonces(merchantC),
+            deadline
+        );
+
+        registry.registerFor(merchantC, 75, MerchantRegistry.RiskTolerance.Aggressive, eurc, chatB, deadline, signature);
+
+        MerchantRegistry.Config memory c = registry.configOf(merchantC);
+        assertEq(c.fxThresholdBps, 75);
+        assertEq(uint8(c.risk), uint8(MerchantRegistry.RiskTolerance.Aggressive));
+        assertEq(c.preferredStablecoin, eurc);
+        assertEq(c.telegramChatId, chatB);
+        assertTrue(c.active);
+        assertEq(registry.nonces(merchantC), 1);
+    }
+
+    function test_registerFor_revertsWithWrongSigner() public {
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature = _signRegister(
+            merchantCKey,
+            merchantA,
+            75,
+            MerchantRegistry.RiskTolerance.Aggressive,
+            eurc,
+            chatB,
+            registry.nonces(merchantA),
+            deadline
+        );
+
+        vm.expectRevert(MerchantRegistry.InvalidSignature.selector);
+        registry.registerFor(merchantA, 75, MerchantRegistry.RiskTolerance.Aggressive, eurc, chatB, deadline, signature);
+    }
+
+    function test_registerFor_revertsAfterDeadline() public {
+        uint256 deadline = block.timestamp - 1;
+        bytes memory signature = _signRegister(
+            merchantCKey,
+            merchantC,
+            75,
+            MerchantRegistry.RiskTolerance.Aggressive,
+            eurc,
+            chatB,
+            registry.nonces(merchantC),
+            deadline
+        );
+
+        vm.expectRevert(MerchantRegistry.ExpiredSignature.selector);
+        registry.registerFor(merchantC, 75, MerchantRegistry.RiskTolerance.Aggressive, eurc, chatB, deadline, signature);
     }
 
     function test_register_revertsOnZeroThreshold() public {
@@ -118,5 +179,32 @@ contract MerchantRegistryTest is Test {
         vm.prank(merchantA);
         registry.register(bps, MerchantRegistry.RiskTolerance.Moderate, usdc, chatA);
         assertEq(registry.configOf(merchantA).fxThresholdBps, bps);
+    }
+
+    function _signRegister(
+        uint256 privateKey,
+        address merchant,
+        uint16 fxThresholdBps,
+        MerchantRegistry.RiskTolerance risk,
+        address preferredStablecoin,
+        bytes32 telegramChatId,
+        uint256 nonce,
+        uint256 deadline
+    ) internal view returns (bytes memory) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                registry.REGISTER_TYPEHASH(),
+                merchant,
+                fxThresholdBps,
+                uint8(risk),
+                preferredStablecoin,
+                telegramChatId,
+                nonce,
+                deadline
+            )
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", registry.DOMAIN_SEPARATOR(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
+        return abi.encodePacked(r, s, v);
     }
 }
