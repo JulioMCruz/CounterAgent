@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { LucideIcon } from "lucide-react"
-import { useAccount, useChainId, usePublicClient, useSwitchChain, useWriteContract } from "wagmi"
+import { useAccount, useChainId, usePublicClient, useWriteContract } from "wagmi"
 import { sepolia } from "wagmi/chains"
+import { AgentInteractionFlow } from "@/components/agent-interaction-flow"
 import { AppHeader } from "@/components/app-header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -32,6 +33,8 @@ import {
   type ResolvedMerchantConfig,
   uploadEnsProfileImage,
 } from "@/lib/a0"
+import { getFriendlyChainError } from "@/lib/chain-guard"
+import { useRequiredChain } from "@/hooks/use-required-chain"
 import { merchantRegistryAbi } from "@/lib/merchant-registry-abi"
 import {
   activeChain,
@@ -115,6 +118,8 @@ const emptyEnsProfile: EnsProfileDraft = {
   instagram: "",
   subnames: [],
 }
+
+const friendlyErrorMessage = getFriendlyChainError
 
 const csvToList = (value?: string) =>
   (value || "")
@@ -244,7 +249,8 @@ export default function SettingsPage() {
   const chainId = useChainId()
   const publicClient = usePublicClient({ chainId: activeChain.id })
   const ensPublicClient = usePublicClient({ chainId: ensChain.id })
-  const { switchChainAsync } = useSwitchChain()
+  const treasuryChainGuard = useRequiredChain(activeChain)
+  const ensChainGuard = useRequiredChain(ensChain)
   const { writeContractAsync } = useWriteContract()
   const [merchant, setMerchant] = useState<ResolvedMerchantConfig | undefined>()
   const [registered, setRegistered] = useState(false)
@@ -256,7 +262,7 @@ export default function SettingsPage() {
   const [ensImageFiles, setEnsImageFiles] = useState<Record<EnsImageField, File | null>>({ merchantImage: null, header: null })
   const [draggingImageField, setDraggingImageField] = useState<EnsImageField | null>(null)
   const [uploadingImageField, setUploadingImageField] = useState<EnsImageField | null>(null)
-  const [ensSaveState, setEnsSaveState] = useState<"idle" | "switching" | "confirming" | "mining" | "success" | "error">("idle")
+  const [ensSaveState, setEnsSaveState] = useState<"idle" | "preparing" | "switching" | "confirming" | "mining" | "success" | "error">("idle")
   const [ensSaveMessage, setEnsSaveMessage] = useState<string | null>(null)
   const [ensLastTxHash, setEnsLastTxHash] = useState<`0x${string}` | null>(null)
   const [fxThreshold, setFxThresholdState] = useState([1])
@@ -267,7 +273,7 @@ export default function SettingsPage() {
     riskTolerance: "Moderate" as RiskToleranceLabel,
     preferredStablecoin: "USDC" as keyof typeof stablecoinAddresses,
   })
-  const [saveState, setSaveState] = useState<"idle" | "switching" | "confirming" | "mining" | "success" | "error">("idle")
+  const [saveState, setSaveState] = useState<"idle" | "preparing" | "switching" | "confirming" | "mining" | "success" | "error">("idle")
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
   const [lastTxHash, setLastTxHash] = useState<`0x${string}` | null>(null)
 
@@ -538,12 +544,15 @@ export default function SettingsPage() {
     }
 
     try {
-      if (chainId !== activeChain.id) {
-        setSaveState("switching")
-        await switchChainAsync({ chainId: activeChain.id })
-      }
+      setSaveState("preparing")
+      setSaveMessage("Orchestration Agent is preparing the treasury config update…")
+
+      setSaveState("switching")
+      setSaveMessage(`Please approve the switch to ${activeChain.name} for registry writes…`)
+      await treasuryChainGuard.ensureChain()
 
       setSaveState("confirming")
+      setSaveMessage("Confirm treasury config update in your wallet…")
       console.debug("[CounterAgent Settings] submitting MerchantRegistry.update", {
         registry: merchantRegistryAddress,
         fxThresholdBps,
@@ -569,6 +578,7 @@ export default function SettingsPage() {
 
       setLastTxHash(hash)
       setSaveState("mining")
+      setSaveMessage("Merchant Registry is confirming the treasury config update…")
       console.debug("[CounterAgent Settings] update tx submitted", { hash })
       await publicClient?.waitForTransactionReceipt({ hash })
       console.debug("[CounterAgent Settings] update tx confirmed", { hash })
@@ -578,12 +588,12 @@ export default function SettingsPage() {
     } catch (error) {
       console.error("[CounterAgent Settings] treasury config update failed", error)
       setSaveState("error")
-      setSaveMessage(error instanceof Error ? error.message : "Treasury config update failed.")
+      setSaveMessage(friendlyErrorMessage(error, "Treasury config update failed."))
     }
   }
 
-  const isSaving = ["switching", "confirming", "mining"].includes(saveState)
-  const isEnsSaving = ["switching", "confirming", "mining"].includes(ensSaveState)
+  const isSaving = ["preparing", "switching", "confirming", "mining"].includes(saveState)
+  const isEnsSaving = ["preparing", "switching", "confirming", "mining"].includes(ensSaveState)
 
   const saveEnsProfile = async () => {
     setEnsSaveMessage(null)
@@ -604,16 +614,20 @@ export default function SettingsPage() {
     }
 
     try {
+      setEnsSaveState("preparing")
+      setEnsSaveMessage("Orchestration Agent is preparing the ENS profile update…")
       let draftForSave = ensDraft
 
       if (ensImageFiles.merchantImage && !draftForSave.merchantImage.trim()) {
-        setEnsSaveMessage("Uploading clipped avatar to IPFS before writing ENS records…")
+        setEnsSaveState("preparing")
+        setEnsSaveMessage("ENS Monitor Agent is sending the clipped avatar to the IPFS plugin…")
         const uploadedUrl = await uploadEnsImage("merchantImage", ensImageFiles.merchantImage)
         if (uploadedUrl) draftForSave = { ...draftForSave, merchantImage: uploadedUrl }
       }
 
       if (ensImageFiles.header && !draftForSave.header.trim()) {
-        setEnsSaveMessage("Uploading clipped header to IPFS before writing ENS records…")
+        setEnsSaveState("preparing")
+        setEnsSaveMessage("ENS Monitor Agent is sending the clipped header to the IPFS plugin…")
         const uploadedUrl = await uploadEnsImage("header", ensImageFiles.header)
         if (uploadedUrl) draftForSave = { ...draftForSave, header: uploadedUrl }
       }
@@ -624,6 +638,8 @@ export default function SettingsPage() {
         return
       }
 
+      setEnsSaveState("preparing")
+      setEnsSaveMessage("ENS Monitor Agent is preparing the text-record map…")
       const plan = await prepareEnsProfileRecords(ensProfileRequestFromDraft(draftForSave))
       const currentRecords = merchant?.ens?.records ?? {}
       const entries = Object.entries(plan.records).filter(([key, value]) => equivalentCurrentEnsValue(currentRecords, key) !== value)
@@ -634,11 +650,9 @@ export default function SettingsPage() {
         return
       }
 
-      if (chainId !== ensChain.id) {
-        setEnsSaveState("switching")
-        setEnsSaveMessage(`Switching to ${ensChain.name} for ENS resolver writes…`)
-        await switchChainAsync({ chainId: ensChain.id })
-      }
+      setEnsSaveState("switching")
+      setEnsSaveMessage(`Please approve the switch to ${ensChain.name} for ENS resolver writes…`)
+      await ensChainGuard.ensureChain()
 
       let lastHash: `0x${string}` | null = null
       for (const [index, [key, value]] of entries.entries()) {
@@ -664,7 +678,7 @@ export default function SettingsPage() {
     } catch (error) {
       console.error("[CounterAgent Settings] ENS profile update failed", error)
       setEnsSaveState("error")
-      setEnsSaveMessage(error instanceof Error ? error.message : "ENS profile update failed.")
+      setEnsSaveMessage(friendlyErrorMessage(error, "ENS profile update failed."))
     }
   }
 
@@ -771,6 +785,22 @@ export default function SettingsPage() {
     <div>
       <AppHeader />
       <main className="flex flex-col gap-4 p-4 lg:gap-6 lg:p-6">
+        {isConnected && treasuryChainGuard.status !== "ready" ? (
+          <Card className="border-warning/40 bg-warning/10">
+            <CardContent className="flex flex-col gap-3 px-4 py-3 text-sm text-warning-foreground sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-bold">Wrong network for treasury updates</p>
+                <p className="text-xs text-muted-foreground">
+                  Your wallet is on {networkName}. Treasury actions require {activeChain.name}.
+                </p>
+              </div>
+              <Button size="sm" onClick={() => void treasuryChainGuard.ensureChain()} disabled={treasuryChainGuard.isSwitching}>
+                {treasuryChainGuard.isSwitching ? "Switching..." : `Switch to ${activeChain.name}`}
+              </Button>
+            </CardContent>
+          </Card>
+        ) : null}
+
         <Card className="border-0 bg-header-bg text-header-foreground">
           <CardContent className="flex items-center gap-3 px-4 py-4 lg:px-6">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/20">
@@ -792,9 +822,21 @@ export default function SettingsPage() {
           <div>
             <div className="mb-2 flex items-center justify-between gap-3">
               <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Treasury Config</p>
-              <Button size="sm" variant="outline" disabled={!registered} onClick={openEditDialog}>
-                Edit config
-              </Button>
+              <div className="flex items-center gap-2">
+                {isConnected && treasuryChainGuard.status !== "ready" ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void treasuryChainGuard.ensureChain()}
+                    disabled={treasuryChainGuard.isSwitching}
+                  >
+                    {treasuryChainGuard.isSwitching ? "Switching..." : `Switch to ${activeChain.name}`}
+                  </Button>
+                ) : null}
+                <Button size="sm" variant="outline" disabled={!registered} onClick={openEditDialog}>
+                  Edit config
+                </Button>
+              </div>
             </div>
             <Card>
               <CardContent className="flex flex-col divide-y divide-border px-0 py-0">
@@ -1006,6 +1048,24 @@ export default function SettingsPage() {
               The ENS Monitor Agent prepares the ENS text-record map; your merchant wallet signs the resolver writes.
             </div>
 
+            {ensChainGuard.status !== "ready" ? (
+              <div className="rounded-xl border border-warning/40 bg-warning/10 px-3 py-3 text-sm text-warning-foreground">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-bold">ENS writes require {ensChain.name}</p>
+                    <p className="text-xs text-muted-foreground">Your wallet will be asked to switch before signing resolver records.</p>
+                  </div>
+                  <Button size="sm" type="button" onClick={() => void ensChainGuard.ensureChain()} disabled={ensChainGuard.isSwitching}>
+                    {ensChainGuard.isSwitching ? "Switching..." : `Switch to ${ensChain.name}`}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            {ensSaveState !== "idle" ? (
+              <AgentInteractionFlow mode="ens-profile-update" phase={ensSaveState} />
+            ) : null}
+
             {ensSaveMessage ? (
               <p className={ensSaveState === "error" ? "text-sm text-destructive" : "text-sm text-success"}>{ensSaveMessage}</p>
             ) : null}
@@ -1029,20 +1089,22 @@ export default function SettingsPage() {
               Close
             </Button>
             <Button type="button" onClick={saveEnsProfile} disabled={isEnsSaving || !registered}>
-              {ensSaveState === "switching"
-                ? "Switching network..."
-                : ensSaveState === "confirming"
-                  ? "Confirm ENS record..."
-                  : ensSaveState === "mining"
-                    ? "Writing ENS record..."
-                    : "Save ENS records"}
+              {ensSaveState === "preparing"
+                ? "Preparing agent flow..."
+                : ensSaveState === "switching"
+                  ? "Switching network..."
+                  : ensSaveState === "confirming"
+                    ? "Confirm ENS record..."
+                    : ensSaveState === "mining"
+                      ? "Writing ENS record..."
+                      : "Save ENS records"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>Edit Treasury Config</DialogTitle>
             <DialogDescription>
@@ -1124,6 +1186,24 @@ export default function SettingsPage() {
               <span className="font-semibold text-foreground">{preferredStablecoin}</span>
             </div>
 
+            {treasuryChainGuard.status !== "ready" ? (
+              <div className="rounded-xl border border-warning/40 bg-warning/10 px-3 py-3 text-sm text-warning-foreground">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-bold">Treasury writes require {activeChain.name}</p>
+                    <p className="text-xs text-muted-foreground">Your wallet will be asked to switch before signing the registry update.</p>
+                  </div>
+                  <Button size="sm" type="button" onClick={() => void treasuryChainGuard.ensureChain()} disabled={treasuryChainGuard.isSwitching}>
+                    {treasuryChainGuard.isSwitching ? "Switching..." : `Switch to ${activeChain.name}`}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            {saveState !== "idle" ? (
+              <AgentInteractionFlow mode="treasury-config-update" phase={saveState} />
+            ) : null}
+
             {saveMessage ? (
               <p className={saveState === "error" ? "text-sm text-destructive" : "text-sm text-success"}>{saveMessage}</p>
             ) : null}
@@ -1147,13 +1227,15 @@ export default function SettingsPage() {
               Close
             </Button>
             <Button type="button" onClick={saveTreasuryConfig} disabled={isSaving || !registered}>
-              {saveState === "switching"
-                ? "Switching network..."
-                : saveState === "confirming"
-                  ? "Confirm in wallet..."
-                  : saveState === "mining"
-                    ? "Waiting for confirmation..."
-                    : "Save on-chain"}
+              {saveState === "preparing"
+                ? "Preparing agent flow..."
+                : saveState === "switching"
+                  ? "Switching network..."
+                  : saveState === "confirming"
+                    ? "Confirm in wallet..."
+                    : saveState === "mining"
+                      ? "Waiting for confirmation..."
+                      : "Save on-chain"}
             </Button>
           </DialogFooter>
         </DialogContent>
