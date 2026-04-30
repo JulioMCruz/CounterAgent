@@ -45,25 +45,25 @@ const AgentNode = memo(({ data }: NodeProps<Node<AgentNodeData>>) => {
   const StatusIcon = statusIcon[data.status]
 
   return (
-    <div className={`min-w-[178px] rounded-2xl border px-3 py-3 backdrop-blur ${statusStyles[data.status]}`}>
+    <div className={`min-w-[205px] rounded-2xl border px-3.5 py-3.5 backdrop-blur ${statusStyles[data.status]}`}>
       <Handle type="target" position={Position.Left} className="!h-2 !w-2 !border-0 !bg-primary" />
       <Handle type="source" position={Position.Right} className="!h-2 !w-2 !border-0 !bg-primary" />
       <div className="flex items-start gap-2">
-        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${data.status === "active" ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground"}`}>
-          <Icon className="h-4 w-4" />
+        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${data.status === "active" ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground"}`}>
+          <Icon className="h-4.5 w-4.5" />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <p className="truncate text-sm font-black tracking-tight">{data.label}</p>
-            <StatusIcon className={`h-3.5 w-3.5 ${data.status === "active" ? "animate-pulse text-primary" : data.status === "complete" ? "text-success" : "text-muted-foreground"}`} />
+            <p className="truncate text-[15px] font-black tracking-tight">{data.label}</p>
+            <StatusIcon className={`h-4 w-4 ${data.status === "active" ? "animate-pulse text-primary" : data.status === "complete" ? "text-success" : "text-muted-foreground"}`} />
           </div>
-          <p className="mt-0.5 text-[11px] font-medium text-muted-foreground">{data.role}</p>
+          <p className="mt-1 text-xs font-medium leading-snug text-muted-foreground">{data.role}</p>
         </div>
       </div>
       {data.plugins?.length ? (
         <div className="mt-3 grid gap-1">
           {data.plugins.map((plugin) => (
-            <div key={plugin} className="flex items-center gap-1.5 rounded-full border border-border/80 bg-background/80 px-2 py-1 text-[10px] font-semibold text-muted-foreground">
+            <div key={plugin} className="flex items-center gap-1.5 rounded-full border border-border/80 bg-background/80 px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
               <PlugZap className="h-3 w-3 text-primary" />
               <span className="truncate">{plugin}</span>
             </div>
@@ -120,7 +120,7 @@ const buildEnsFlow = (phase: FlowPhase) => {
     {
       id: "monitor",
       type: "agent",
-      position: { x: 255, y: 58 },
+      position: { x: 285, y: 58 },
       data: {
         label: "ENS Monitor Agent",
         role: "Prepares ENS records",
@@ -132,7 +132,7 @@ const buildEnsFlow = (phase: FlowPhase) => {
     {
       id: "ipfs",
       type: "agent",
-      position: { x: 510, y: 0 },
+      position: { x: 570, y: 0 },
       data: {
         label: "IPFS Plugin",
         role: "Pins media URL",
@@ -144,7 +144,7 @@ const buildEnsFlow = (phase: FlowPhase) => {
     {
       id: "wallet",
       type: "agent",
-      position: { x: 510, y: 140 },
+      position: { x: 570, y: 145 },
       data: {
         label: "Wallet Signature",
         role: "Merchant confirms",
@@ -155,7 +155,7 @@ const buildEnsFlow = (phase: FlowPhase) => {
     {
       id: "resolver",
       type: "agent",
-      position: { x: 765, y: 58 },
+      position: { x: 855, y: 58 },
       data: {
         label: "ENS Resolver",
         role: "Writes text records",
@@ -165,11 +165,12 @@ const buildEnsFlow = (phase: FlowPhase) => {
       },
     },
   ]
+  const live = phase !== "idle"
   const edges: Edge[] = [
-    { id: "e1", source: "orchestration", target: "monitor", animated: true, type: "smoothstep", label: "profile update" },
-    { id: "e2", source: "monitor", target: "ipfs", animated: true, type: "smoothstep", label: "media upload" },
-    { id: "e3", source: "ipfs", target: "wallet", animated: true, type: "smoothstep", label: "URL ready" },
-    { id: "e4", source: "wallet", target: "resolver", animated: true, type: "smoothstep", label: "setText" },
+    { id: "e1", source: "orchestration", target: "monitor", animated: live, type: "smoothstep", label: "profile update" },
+    { id: "e2", source: "monitor", target: "ipfs", animated: live, type: "smoothstep", label: "media upload" },
+    { id: "e3", source: "ipfs", target: "wallet", animated: live, type: "smoothstep", label: "URL ready" },
+    { id: "e4", source: "wallet", target: "resolver", animated: live, type: "smoothstep", label: "setText" },
   ]
   return { nodes, edges }
 }
@@ -192,7 +193,7 @@ const buildTreasuryFlow = (phase: FlowPhase) => {
     {
       id: "wallet",
       type: "agent",
-      position: { x: 255, y: 55 },
+      position: { x: 285, y: 55 },
       data: {
         label: "Wallet Signature",
         role: "Merchant confirms",
@@ -203,7 +204,7 @@ const buildTreasuryFlow = (phase: FlowPhase) => {
     {
       id: "registry",
       type: "agent",
-      position: { x: 510, y: 55 },
+      position: { x: 570, y: 55 },
       data: {
         label: "Merchant Registry",
         role: "Stores treasury config",
@@ -215,7 +216,7 @@ const buildTreasuryFlow = (phase: FlowPhase) => {
     {
       id: "reporting",
       type: "agent",
-      position: { x: 765, y: 55 },
+      position: { x: 855, y: 55 },
       data: {
         label: "Reporting Agent",
         role: "Audit trail context",
@@ -225,15 +226,26 @@ const buildTreasuryFlow = (phase: FlowPhase) => {
       },
     },
   ]
+  const live = phase !== "idle"
   const edges: Edge[] = [
-    { id: "e1", source: "orchestration", target: "wallet", animated: true, type: "smoothstep", label: "prepare" },
-    { id: "e2", source: "wallet", target: "registry", animated: true, type: "smoothstep", label: "update" },
-    { id: "e3", source: "registry", target: "reporting", animated: true, type: "smoothstep", label: "sync" },
+    { id: "e1", source: "orchestration", target: "wallet", animated: live, type: "smoothstep", label: "prepare" },
+    { id: "e2", source: "wallet", target: "registry", animated: live, type: "smoothstep", label: "update" },
+    { id: "e3", source: "registry", target: "reporting", animated: live, type: "smoothstep", label: "sync" },
   ]
   return { nodes, edges }
 }
 
-export function AgentInteractionFlow({ mode, phase, className = "" }: { mode: FlowMode; phase: FlowPhase; className?: string }) {
+export function AgentInteractionFlow({
+  mode,
+  phase,
+  className = "",
+  heightClassName = "h-[280px]",
+}: {
+  mode: FlowMode
+  phase: FlowPhase
+  className?: string
+  heightClassName?: string
+}) {
   const { nodes, edges } = useMemo(() => (mode === "ens-profile-update" ? buildEnsFlow(phase) : buildTreasuryFlow(phase)), [mode, phase])
   const title = mode === "ens-profile-update" ? "Agent interaction: ENS profile update" : "Agent interaction: treasury config update"
   const subtitle = mode === "ens-profile-update" ? "Shows how media, plugins, wallet signatures, and ENS records coordinate." : "Shows how the agent system prepares, signs, stores, and reports treasury config updates."
@@ -242,14 +254,14 @@ export function AgentInteractionFlow({ mode, phase, className = "" }: { mode: Fl
     <div className={`overflow-hidden rounded-2xl border border-border bg-background/95 shadow-sm ${className}`}>
       <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
         <div>
-          <p className="text-sm font-black text-foreground">{title}</p>
-          <p className="text-xs text-muted-foreground">{subtitle}</p>
+          <p className="text-[15px] font-black text-foreground">{title}</p>
+          <p className="text-xs leading-relaxed text-muted-foreground">{subtitle}</p>
         </div>
-        <div className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-primary">
-          Live agents
+        <div className={`rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider ${phase === "idle" ? "bg-secondary text-muted-foreground" : "bg-primary/10 text-primary"}`}>
+          {phase === "idle" ? "Ready" : "Live agents"}
         </div>
       </div>
-      <div className="h-[280px] bg-[radial-gradient(circle_at_top_left,rgba(236,72,153,0.13),transparent_32%),linear-gradient(180deg,rgba(255,255,255,0.92),rgba(248,250,252,0.92))]">
+      <div className={`${heightClassName} bg-[radial-gradient(circle_at_top_left,rgba(236,72,153,0.13),transparent_32%),linear-gradient(180deg,rgba(255,255,255,0.92),rgba(248,250,252,0.92))]`}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
