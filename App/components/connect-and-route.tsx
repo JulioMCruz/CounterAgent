@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { DynamicWidget, useDynamicContext } from "@dynamic-labs/sdk-react-core"
+import { useDynamicContext } from "@dynamic-labs/sdk-react-core"
 import { useAccount, useChainId, useReadContract, useSwitchChain } from "wagmi"
 import { resolveSession } from "@/lib/a0"
 import { merchantRegistryAbi } from "@/lib/merchant-registry-abi"
@@ -22,7 +22,7 @@ const dynamicConfigured = Boolean(process.env.NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID
 export function ConnectAndRoute() {
   const router = useRouter()
   const { address } = useAccount()
-  const { primaryWallet } = useDynamicContext()
+  const { primaryWallet, sdkHasLoaded, setShowAuthFlow } = useDynamicContext()
   const wagmiChainId = useChainId()
   const { switchChainAsync } = useSwitchChain()
   const [routeStatus, setRouteStatus] = useState<"idle" | "checking" | "fallback">("idle")
@@ -106,6 +106,12 @@ export function ConnectAndRoute() {
   }
 
   useEffect(() => {
+    if (!address) {
+      setDynamicChainId(null)
+      setProviderChainId(null)
+      return
+    }
+
     let cancelled = false
 
     async function refreshNetworkState() {
@@ -130,7 +136,7 @@ export function ConnectAndRoute() {
     }
 
     refreshNetworkState()
-    const interval = window.setInterval(refreshNetworkState, 1500)
+    const interval = window.setInterval(refreshNetworkState, 3000)
     const provider = (window as typeof window & {
       ethereum?: {
         on?: (event: string, handler: (chainId: string) => void) => void
@@ -145,7 +151,7 @@ export function ConnectAndRoute() {
       window.clearInterval(interval)
       provider?.removeListener?.("chainChanged", onChainChanged)
     }
-  }, [primaryWallet])
+  }, [address, primaryWallet])
 
   useEffect(() => {
     if (!address || !connectedToTargetChain) return
@@ -198,7 +204,16 @@ export function ConnectAndRoute() {
 
   return (
     <div className="flex flex-col items-start gap-2">
-      <DynamicWidget />
+      {!address ? (
+        <div className="flex flex-col items-start gap-2">
+          <Button type="button" size="lg" onClick={() => setShowAuthFlow(true)} disabled={!sdkHasLoaded}>
+            {sdkHasLoaded ? "Connect wallet" : "Loading wallet..."}
+          </Button>
+          <p className="max-w-sm text-xs text-header-foreground/60">
+            Wallet connection starts only when you click. No automatic MetaMask prompts on page load.
+          </p>
+        </div>
+      ) : null}
       <Dialog open={!!address && !connectedToTargetChain}>
         <DialogContent showCloseButton={false}>
           <DialogHeader>

@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { DynamicWidget } from "@dynamic-labs/sdk-react-core"
 import { Zap, Check, ArrowLeft, Loader2 } from "lucide-react"
 import { useAccount, useChainId, useSignTypedData, useSwitchChain } from "wagmi"
 import { Button } from "@/components/ui/button"
@@ -233,6 +234,20 @@ export default function OnboardingPage() {
           <h1 className="text-2xl font-extrabold tracking-tight text-foreground lg:text-3xl">Set Up Your Treasury</h1>
           <p className="mt-1 text-sm text-muted-foreground lg:text-base">Configure once via ENS. No database. No app login.</p>
         </div>
+
+        {!address && (
+          <Card className="border-primary/30 bg-primary/5">
+            <CardContent className="flex flex-col gap-3 px-4 py-4">
+              <div>
+                <p className="text-sm font-bold text-foreground">Connect your wallet</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Wallet connection starts here, after an explicit click — never from the landing page.
+                </p>
+              </div>
+              <DynamicWidget />
+            </CardContent>
+          </Card>
+        )}
 
         {/* Desktop: two-column form layout */}
         <div className="flex flex-col gap-5 lg:grid lg:grid-cols-2 lg:gap-6">

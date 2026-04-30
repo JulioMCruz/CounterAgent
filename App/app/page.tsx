@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { Zap, ArrowRightLeft, FileText, Radio, MessageCircle } from "lucide-react"
 import { ConnectAndRoute } from "@/components/connect-and-route"
-import { SessionHeaderActions } from "@/components/session-header-actions"
+import { Button } from "@/components/ui/button"
 
 export default function LandingPage() {
   return (
@@ -13,10 +13,12 @@ export default function LandingPage() {
           <span className="text-lg font-bold tracking-tight lg:text-xl">Counter Agent</span>
         </div>
         <div className="flex items-center gap-3">
-          <Link href="/onboarding" className="text-sm font-medium text-header-foreground/70 hover:text-header-foreground">
+          <Link href="/onboarding" prefetch={false} className="text-sm font-medium text-header-foreground/70 hover:text-header-foreground">
             For Merchants
           </Link>
-          <SessionHeaderActions />
+          <Button asChild size="sm" className="rounded-full">
+            <Link href="#connect-wallet" prefetch={false}>Connect wallet</Link>
+          </Button>
         </div>
       </header>
 
@@ -36,7 +38,7 @@ export default function LandingPage() {
           <p className="mt-4 max-w-lg text-pretty text-base leading-relaxed text-header-foreground/60 lg:mt-6 lg:text-lg">
             CounterAgent monitors FX rates and auto-converts your USDC &middot; EURC &middot; USDT &mdash; so you never lose value to bad timing.
           </p>
-          <div className="mt-8 lg:mt-10">
+          <div id="connect-wallet" className="mt-8 lg:mt-10">
             <ConnectAndRoute />
           </div>
 

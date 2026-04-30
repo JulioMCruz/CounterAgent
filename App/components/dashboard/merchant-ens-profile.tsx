@@ -28,11 +28,19 @@ const initialsFor = (value: string) => {
 export function MerchantEnsProfile() {
   const { address } = useAccount()
   const [merchant, setMerchant] = useState<ResolvedMerchantConfig | undefined>()
+  const [cachedEnsRecords, setCachedEnsRecords] = useState<Record<string, string>>({})
 
   useEffect(() => {
     if (!address) {
       setMerchant(undefined)
       return
+    }
+
+    try {
+      const cached = window.localStorage.getItem(`counteragent:ens-records:${address.toLowerCase()}`)
+      setCachedEnsRecords(cached ? JSON.parse(cached) : {})
+    } catch {
+      setCachedEnsRecords({})
     }
 
     let cancelled = false
@@ -50,7 +58,7 @@ export function MerchantEnsProfile() {
   }, [address])
 
   const profile = useMemo(() => {
-    const records = merchant?.ens?.records
+    const records = { ...(merchant?.ens?.records ?? {}), ...cachedEnsRecords }
     const name = ensNameFromMerchant(merchant)
     return {
       name,
@@ -59,7 +67,7 @@ export function MerchantEnsProfile() {
       header: imageFromRecords(records, ["header", "counteragent.header"]),
       description: records?.description?.trim() || "Merchant treasury profile powered by ENS and CounterAgent.",
     }
-  }, [address, merchant])
+  }, [address, cachedEnsRecords, merchant])
 
   return (
     <Card className="overflow-hidden border-0 shadow-lg">
