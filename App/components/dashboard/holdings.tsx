@@ -1,33 +1,62 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import type { DashboardState } from "@/lib/a0"
 
-const holdings = [
-  { symbol: "USDC", name: "USD Coin", value: "$2,100.00", change: "+0.02%", color: "bg-chart-3" },
-  { symbol: "EURC", name: "Euro Coin", value: "\u20AC1,480.00", change: "+1.14%", color: "bg-primary" },
-  { symbol: "USDT", name: "Tether", value: "$1,074.20", change: "+0.01%", color: "bg-success" },
-]
+const tokenMeta: Record<string, { name: string; color: string }> = {
+  USDC: { name: "USD Coin", color: "bg-chart-3" },
+  EURC: { name: "Euro Coin", color: "bg-primary" },
+  USDT: { name: "Tether", color: "bg-success" },
+}
 
-export function Holdings() {
+function formatAmount(value: number, symbol: string) {
+  if (!value) return "No activity"
+  return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${symbol}`
+}
+
+export function Holdings({ dashboard, isLoading }: { dashboard?: DashboardState; isLoading?: boolean }) {
+  const tokenTotals = new Map<string, number>()
+
+  for (const execution of dashboard?.executions ?? []) {
+    if (execution.type !== "execution" || execution.status === "skipped") continue
+    if (execution.fromToken) tokenTotals.set(execution.fromToken, (tokenTotals.get(execution.fromToken) ?? 0) + Number(execution.amount ?? 0))
+    if (execution.toToken) tokenTotals.set(execution.toToken, tokenTotals.get(execution.toToken) ?? 0)
+  }
+
+  const holdings = ["USDC", "EURC", "USDT"].map((symbol) => ({
+    symbol,
+    name: tokenMeta[symbol].name,
+    value: tokenTotals.get(symbol) ?? 0,
+    color: tokenMeta[symbol].color,
+  }))
+
   return (
     <Card>
       <CardHeader className="px-5 pb-2 pt-4">
-        <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Holdings</CardTitle>
+        <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Holdings Activity</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3 px-5 pb-5">
-        {holdings.map((h) => (
-          <div key={h.symbol} className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <span className={`h-2.5 w-2.5 rounded-full ${h.color}`} />
-              <div>
-                <p className="text-sm font-semibold text-card-foreground">{h.symbol}</p>
-                <p className="text-xs text-muted-foreground">{h.name}</p>
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading live agent data…</p>
+        ) : holdings.every((h) => h.value === 0) ? (
+          <p className="rounded-lg border border-dashed border-muted-foreground/30 p-3 text-sm text-muted-foreground">
+            No swap history yet. Registered merchants start empty until A3 quotes or executes a dry-run.
+          </p>
+        ) : (
+          holdings.map((h) => (
+            <div key={h.symbol} className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className={`h-2.5 w-2.5 rounded-full ${h.color}`} />
+                <div>
+                  <p className="text-sm font-semibold text-card-foreground">{h.symbol}</p>
+                  <p className="text-xs text-muted-foreground">{h.name}</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-bold text-card-foreground">{formatAmount(h.value, h.symbol)}</p>
+                <p className="text-xs font-medium text-muted-foreground">A3 history</p>
               </div>
             </div>
-            <div className="text-right">
-              <p className="text-sm font-bold text-card-foreground">{h.value}</p>
-              <p className="text-xs font-medium text-success">{h.change}</p>
-            </div>
-          </div>
-        ))}
+          ))
+        )}
       </CardContent>
     </Card>
   )

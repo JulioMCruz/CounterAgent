@@ -56,6 +56,33 @@ const uniswap = new UniswapTradingApiClient({
 
 const app = Fastify({ logger: true });
 
+type RecentSwap = {
+  agent: 'A3';
+  type: 'quote' | 'execution';
+  workflowId?: string;
+  merchant: string;
+  fromToken: string;
+  toToken: string;
+  amount: string;
+  rate?: number;
+  status: string;
+  quoteId?: string;
+  txHash?: string | null;
+  estimatedAmountOut?: string;
+  timestamp: string;
+};
+
+const recentSwaps = new Map<string, RecentSwap[]>();
+const recentLimit = Number(process.env.RECENT_EVENT_LIMIT ?? 20);
+const merchantKey = (value: string) => value.toLowerCase();
+
+function pushRecentSwap(event: RecentSwap) {
+  const key = merchantKey(event.merchant);
+  const items = recentSwaps.get(key) ?? [];
+  items.unshift(event);
+  recentSwaps.set(key, items.slice(0, recentLimit));
+}
+
 await app.register(cors, {
   origin: corsOrigins,
   methods: ['POST', 'GET', 'OPTIONS']
@@ -126,6 +153,19 @@ async function buildQuote(input: z.infer<typeof quoteSchema>) {
   }
 }
 
+app.get('/swap/recent', async (request, reply) => {
+  const merchant = typeof (request.query as { merchant?: unknown }).merchant === 'string'
+    ? (request.query as { merchant: string }).merchant
+    : '';
+
+  if (!isAddress(merchant)) {
+    return reply.code(400).send({ ok: false, error: 'invalid_merchant' });
+  }
+
+  const limit = Math.min(Number((request.query as { limit?: string }).limit ?? recentLimit), recentLimit);
+  return reply.send({ ok: true, merchant, swaps: (recentSwaps.get(merchantKey(merchant)) ?? []).slice(0, limit) });
+});
+
 app.get('/healthz', async () => ({
   ok: true,
   status: 'live',
@@ -147,6 +187,20 @@ app.post('/execution/quote', async (request, reply) => {
   }
 
   const quote = await buildQuote(parsed.data);
+  pushRecentSwap({
+    agent: 'A3',
+    type: 'quote',
+    workflowId: parsed.data.workflowId,
+    merchant: parsed.data.merchantWallet,
+    fromToken: parsed.data.fromToken,
+    toToken: parsed.data.toToken,
+    amount: parsed.data.amount,
+    rate: quote.rate,
+    status: 'dryRun' in quote && quote.dryRun ? 'dry-run-quote' : 'quoted',
+    quoteId: quote.quoteId,
+    estimatedAmountOut: quote.estimatedAmountOut,
+    timestamp: new Date().toISOString()
+  });
   return reply.send({ ok: true, workflowId: parsed.data.workflowId, quote });
 });
 
@@ -158,6 +212,18 @@ app.post('/execution/execute', async (request, reply) => {
   }
 
   if (parsed.data.decision.action !== 'CONVERT') {
+    pushRecentSwap({
+      agent: 'A3',
+      type: 'execution',
+      workflowId: parsed.data.workflowId,
+      merchant: parsed.data.merchantWallet,
+      fromToken: parsed.data.fromToken,
+      toToken: parsed.data.toToken,
+      amount: parsed.data.amount,
+      status: 'skipped',
+      txHash: null,
+      timestamp: new Date().toISOString()
+    });
     return reply.send({
       ok: true,
       workflowId: parsed.data.workflowId,
@@ -170,11 +236,27 @@ app.post('/execution/execute', async (request, reply) => {
   const quote = await buildQuote(parsed.data);
 
   if (executionMode === 'dry-run') {
+    const executionId = parsed.data.idempotencyKey ?? randomUUID();
+    pushRecentSwap({
+      agent: 'A3',
+      type: 'execution',
+      workflowId: parsed.data.workflowId,
+      merchant: parsed.data.merchantWallet,
+      fromToken: parsed.data.fromToken,
+      toToken: parsed.data.toToken,
+      amount: parsed.data.amount,
+      rate: quote.rate,
+      status: 'dry-run',
+      quoteId: quote.quoteId,
+      txHash: null,
+      estimatedAmountOut: quote.estimatedAmountOut,
+      timestamp: new Date().toISOString()
+    });
     return reply.send({
       ok: true,
       workflowId: parsed.data.workflowId,
       status: 'dry-run',
-      executionId: parsed.data.idempotencyKey ?? randomUUID(),
+      executionId,
       quote,
       transactionHash: null,
       message: 'Dry-run execution only; no transaction was submitted.'

@@ -274,6 +274,74 @@ app.get('/healthz', async () => ({
   }
 }));
 
+type DashboardDecision = {
+  agent: 'A2';
+  workflowId?: string;
+  merchant: string;
+  action: 'HOLD' | 'CONVERT';
+  confidence: number;
+  spreadBps?: number;
+  netScoreBps?: number;
+  thresholdBps?: number;
+  fromToken?: string;
+  toToken?: string;
+  amount?: string;
+  reason?: string;
+  timestamp: string;
+};
+
+type DashboardExecution = {
+  agent: 'A3';
+  type: 'quote' | 'execution';
+  workflowId?: string;
+  merchant: string;
+  fromToken?: string;
+  toToken?: string;
+  amount?: string;
+  rate?: number;
+  status: string;
+  quoteId?: string;
+  txHash?: string | null;
+  estimatedAmountOut?: string;
+  timestamp: string;
+};
+
+type DashboardReport = {
+  agent: 'A4';
+  reportId: string;
+  merchant: string;
+  merchantEns?: string;
+  decision: string;
+  summary: string;
+  storageUri?: string;
+  contentHash?: string;
+  txHash?: string;
+  savingsEstimateUsd?: string;
+  timestamp: string;
+};
+
+const asNumber = (value: unknown) => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (typeof value === 'string') {
+    const parsed = Number(value.replace(/[$,]/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+};
+
+const parseAmount = (value: unknown) => asNumber(value);
+
+async function getJson<T>(url: string): Promise<T> {
+  const response = await fetch(url);
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok || (payload as { ok?: boolean }).ok === false) {
+    throw new Error(`get_failed:${response.status}`);
+  }
+
+  return payload as T;
+}
+
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   const response = await fetch(url, {
     method: 'POST',
@@ -774,6 +842,65 @@ app.post('/onboarding/prepare', async (request, reply) => {
     request.log.error({ error }, 'onboarding prepare failed');
     return reply.code(502).send({ ok: false, error: 'registration_prepare_failed' });
   }
+});
+
+
+app.get('/dashboard/state', async (request, reply) => {
+  const merchant = typeof (request.query as { merchant?: unknown }).merchant === 'string'
+    ? (request.query as { merchant: string }).merchant
+    : '';
+
+  if (!isAddress(merchant)) {
+    return reply.code(400).send({ ok: false, error: 'invalid_merchant' });
+  }
+
+  const limit = Math.min(Number((request.query as { limit?: string }).limit ?? 20), 50);
+  const merchantParam = encodeURIComponent(merchant);
+  const unavailable: string[] = [];
+
+  const [decisionResult, executionResult, reportResult] = await Promise.allSettled([
+    decisionAgentUrl
+      ? getJson<{ decisions?: DashboardDecision[] }>(`${decisionAgentUrl.replace(/\/$/, '')}/decision/recent?merchant=${merchantParam}&limit=${limit}`)
+      : Promise.resolve({ decisions: [] as DashboardDecision[] }),
+    executionAgentUrl
+      ? getJson<{ swaps?: DashboardExecution[] }>(`${executionAgentUrl.replace(/\/$/, '')}/swap/recent?merchant=${merchantParam}&limit=${limit}`)
+      : Promise.resolve({ swaps: [] as DashboardExecution[] }),
+    reportingAgentUrl
+      ? getJson<{ reports?: DashboardReport[] }>(`${reportingAgentUrl.replace(/\/$/, '')}/report/recent?merchant=${merchantParam}&limit=${limit}`)
+      : Promise.resolve({ reports: [] as DashboardReport[] })
+  ]);
+
+  const decisions = decisionResult.status === 'fulfilled' ? decisionResult.value.decisions ?? [] : [];
+  const executions = executionResult.status === 'fulfilled' ? executionResult.value.swaps ?? [] : [];
+  const reports = reportResult.status === 'fulfilled' ? reportResult.value.reports ?? [] : [];
+
+  if (decisionResult.status === 'rejected') unavailable.push('A2');
+  if (executionResult.status === 'rejected') unavailable.push('A3');
+  if (reportResult.status === 'rejected') unavailable.push('A4');
+
+  const executionEvents = executions.filter((event) => event.type === 'execution');
+  const swapsExecuted = executionEvents.filter((event) => ['dry-run', 'executed', 'confirmed'].includes(event.status)).length;
+  const volumeUsd = executionEvents.reduce((sum, event) => sum + parseAmount(event.amount), 0);
+  const reportSavings = reports.reduce((sum, report) => sum + parseAmount(report.savingsEstimateUsd), 0);
+  const fallbackSavings = executions.reduce((sum, event) => {
+    const amount = parseAmount(event.amount);
+    return event.type === 'execution' && event.status !== 'skipped' ? sum + amount * 0.0035 : sum;
+  }, 0);
+  const totalSavedUsd = reportSavings || fallbackSavings;
+
+  return reply.send({
+    ok: true,
+    merchant,
+    decisions,
+    executions,
+    reports,
+    kpis: {
+      totalSavedUsd: totalSavedUsd.toFixed(2),
+      swapsExecuted,
+      volumeUsd: volumeUsd.toFixed(2)
+    },
+    unavailable
+  });
 });
 
 app.post('/workflow/evaluate', async (request, reply) => {

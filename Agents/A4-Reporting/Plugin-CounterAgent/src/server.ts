@@ -38,6 +38,31 @@ const a4PrivateKeyConfigured = Boolean(a4PrivateKey);
 
 const app = Fastify({ logger: true });
 
+type RecentReport = {
+  agent: 'A4';
+  reportId: string;
+  merchant: string;
+  merchantEns?: string;
+  decision: string;
+  summary: string;
+  storageUri?: string;
+  contentHash?: string;
+  txHash?: string;
+  savingsEstimateUsd?: string;
+  timestamp: string;
+};
+
+const recentReports = new Map<string, RecentReport[]>();
+const recentLimit = Number(process.env.RECENT_EVENT_LIMIT ?? 20);
+const merchantKey = (value: string) => value.toLowerCase();
+
+function pushRecentReport(event: RecentReport) {
+  const key = merchantKey(event.merchant);
+  const items = recentReports.get(key) ?? [];
+  items.unshift(event);
+  recentReports.set(key, items.slice(0, recentLimit));
+}
+
 await app.register(cors, {
   origin: corsOrigins,
   methods: ['POST', 'GET', 'OPTIONS']
@@ -115,6 +140,19 @@ async function publishReport(report: CanonicalReport) {
   return publishLocal(report);
 }
 
+app.get('/report/recent', async (request, reply) => {
+  const merchant = typeof (request.query as { merchant?: unknown }).merchant === 'string'
+    ? (request.query as { merchant: string }).merchant
+    : '';
+
+  if (!isAddress(merchant)) {
+    return reply.code(400).send({ ok: false, error: 'invalid_merchant' });
+  }
+
+  const limit = Math.min(Number((request.query as { limit?: string }).limit ?? recentLimit), recentLimit);
+  return reply.send({ ok: true, merchant, reports: (recentReports.get(merchantKey(merchant)) ?? []).slice(0, limit) });
+});
+
 app.get('/healthz', async () => ({
   ok: true,
   status: 'live',
@@ -149,6 +187,19 @@ app.post('/reports/publish', async (request, reply) => {
 
   try {
     const published = await publishReport(report);
+    pushRecentReport({
+      agent: 'A4',
+      reportId: report.reportId,
+      merchant: report.merchantWallet,
+      merchantEns: report.merchantEns,
+      decision: report.decision,
+      summary: report.summary,
+      storageUri: published.storageUri,
+      contentHash: published.contentHash,
+      txHash: 'transactionHash' in published && typeof published.transactionHash === 'string' ? published.transactionHash : report.transactionHash,
+      savingsEstimateUsd: report.savingsEstimateUsd,
+      timestamp: report.createdAt
+    });
     return reply.send({
       ok: true,
       reportId: report.reportId,

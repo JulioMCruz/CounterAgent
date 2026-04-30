@@ -28,7 +28,7 @@ function shortHash(value?: string | null) {
   return `${value.slice(0, 10)}…${value.slice(-8)}`
 }
 
-export function WorkflowEvaluation() {
+export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }) {
   const { address, chainId } = useAccount()
   const [result, setResult] = useState<WorkflowEvaluateResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -67,6 +67,7 @@ export function WorkflowEvaluation() {
       })
 
       setResult(response)
+      onCompleted?.()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Workflow request failed")
     } finally {
