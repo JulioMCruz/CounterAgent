@@ -1,4 +1,5 @@
 import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
 import Fastify from 'fastify';
 import {
   createWalletClient,
@@ -91,6 +92,25 @@ const onboardingPrepareSchema = z.object({
   telegramChat: z.string().max(120).optional()
 });
 
+const ensProfileRecordSchema = z.object({
+  merchantImage: z.string().url().max(500).optional().or(z.literal('')),
+  header: z.string().url().max(500).optional().or(z.literal('')),
+  website: z.string().url().max(500).optional().or(z.literal('')),
+  description: z.string().max(500).optional().default(''),
+  socials: z
+    .object({
+      twitter: z.string().max(120).optional().default(''),
+      github: z.string().max(120).optional().default(''),
+      discord: z.string().max(120).optional().default(''),
+      telegram: z.string().max(120).optional().default(''),
+      linkedin: z.string().max(200).optional().default(''),
+      instagram: z.string().max(120).optional().default('')
+    })
+    .optional()
+    .default({}),
+  subnames: z.array(z.string().min(1).max(255)).max(25).optional().default([])
+});
+
 const tokenSchema = z.enum(['USDC', 'EURC', 'USDT']);
 const riskSchema = z.enum(['conservative', 'moderate', 'aggressive']).or(
   z.enum(['Conservative', 'Moderate', 'Aggressive']).transform((value) => value.toLowerCase() as 'conservative' | 'moderate' | 'aggressive')
@@ -120,6 +140,7 @@ const corsOrigins = (process.env.CORS_ORIGIN ?? 'https://counteragent.netlify.ap
 const merchantRegistryAddress = process.env.MERCHANT_REGISTRY_ADDRESS as Address | undefined;
 const registryRelayerPrivateKey = process.env.REGISTRY_RELAYER_PRIVATE_KEY as Hex | undefined;
 const baseRpcUrl = process.env.BASE_RPC_URL || 'https://sepolia.base.org';
+const baseSepoliaRpcUrl = process.env.BASE_SEPOLIA_RPC_URL || 'https://sepolia.base.org';
 const defaultChainId = Number(process.env.DEFAULT_CHAIN_ID ?? 84532);
 const monitorAgentUrl = process.env.MONITOR_AGENT_URL;
 const reportingAgentUrl = process.env.REPORTING_AGENT_URL;
@@ -148,6 +169,13 @@ await app.register(cors, {
   methods: ['POST', 'GET', 'OPTIONS']
 });
 
+await app.register(multipart, {
+  limits: {
+    files: 1,
+    fileSize: Number(process.env.ENS_PROFILE_IMAGE_MAX_BYTES ?? 10_000_000)
+  }
+});
+
 const chainFor = (chainId: number) => {
   if (chainId === base.id) return base;
   if (chainId === baseSepolia.id) return baseSepolia;
@@ -157,7 +185,7 @@ const chainFor = (chainId: number) => {
 const registryClientFor = (chainId: number) =>
   createPublicClient({
     chain: chainFor(chainId),
-    transport: http(baseRpcUrl)
+    transport: http(chainId === baseSepolia.id ? baseSepoliaRpcUrl : baseRpcUrl)
   });
 
 async function relayDelegatedRegistration(input: {
@@ -356,6 +384,37 @@ async function publishWorkflowReport(input: {
   });
 }
 
+async function lookupMerchantEns(walletAddress: string) {
+  if (!monitorAgentUrl) return null;
+
+  try {
+    const response = await fetch(`${monitorAgentUrl.replace(/\/$/, '')}/ens/merchant/${walletAddress}`);
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok || payload.ok === false) {
+      app.log.info({ walletAddress, status: response.status, error: payload.error }, 'ENS merchant lookup unavailable');
+      return null;
+    }
+
+    return payload as {
+      ok: true;
+      name?: string;
+      label?: string;
+      node?: Hex;
+      owner?: Address;
+      resolver?: Address;
+      address?: Address;
+      merchantWallet?: Address;
+      transactionHash?: Hex;
+      blockNumber?: string;
+      records?: Record<string, unknown>;
+    };
+  } catch (error) {
+    app.log.warn({ error, walletAddress }, 'ENS merchant lookup failed');
+    return null;
+  }
+}
+
 app.post('/session/resolve', async (request, reply) => {
   const parsed = sessionResolveSchema.safeParse(request.body);
 
@@ -403,12 +462,17 @@ app.post('/session/resolve', async (request, reply) => {
       args: [walletAddress as Address]
     });
 
+    const ens = await lookupMerchantEns(walletAddress);
+
     return reply.send({
       ok: true,
       route: 'dashboard',
       registered: true,
       merchant: {
         walletAddress,
+        ensName: ens?.name,
+        merchantEns: ens?.name,
+        ens,
         fxThresholdBps: config.fxThresholdBps,
         risk: config.risk,
         preferredStablecoin: config.preferredStablecoin,
@@ -422,6 +486,82 @@ app.post('/session/resolve', async (request, reply) => {
       ok: false,
       error: 'registry_read_failed'
     });
+  }
+});
+
+app.post('/ens/profile/records', async (request, reply) => {
+  const parsed = ensProfileRecordSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    return reply.code(400).send({
+      ok: false,
+      error: 'invalid_request',
+      details: parsed.error.flatten()
+    });
+  }
+
+  if (!monitorAgentUrl) {
+    return reply.code(503).send({
+      ok: false,
+      error: 'ens_monitor_not_configured'
+    });
+  }
+
+  try {
+    const payload = await postJson<{ ok: true; records: Record<string, string>; note?: string }>(
+      `${monitorAgentUrl.replace(/\/$/, '')}/ens/profile/records`,
+      parsed.data
+    );
+
+    return reply.send({
+      ...payload,
+      preparedBy: 'A1-Monitor/Plugin-ENS-MerchantConfig'
+    });
+  } catch (error) {
+    request.log.error({ error }, 'ENS profile record preparation failed');
+    return reply.code(502).send({
+      ok: false,
+      error: 'ens_profile_record_preparation_failed'
+    });
+  }
+});
+
+app.post('/ens/profile/upload', async (request, reply) => {
+  if (!monitorAgentUrl) {
+    return reply.code(503).send({ ok: false, error: 'ens_monitor_not_configured' });
+  }
+
+  const file = await request.file();
+  if (!file) {
+    return reply.code(400).send({ ok: false, error: 'missing_file' });
+  }
+
+  try {
+    const buffer = await file.toBuffer();
+    const form = new FormData();
+    form.append('file', new Blob([new Uint8Array(buffer)], { type: file.mimetype }), file.filename || 'ens-profile-image.png');
+
+    const kind = typeof file.fields.kind === 'object' && 'value' in file.fields.kind ? String(file.fields.kind.value) : 'avatar';
+    form.append('kind', kind);
+
+    const response = await fetch(`${monitorAgentUrl.replace(/\/$/, '')}/ens/profile/upload`, {
+      method: 'POST',
+      body: form
+    });
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok || payload.ok === false) {
+      request.log.error({ status: response.status, payload }, 'ENS profile image upload via A1 failed');
+      return reply.code(response.status >= 400 && response.status < 600 ? response.status : 502).send(payload);
+    }
+
+    return reply.send({
+      ...payload,
+      proxiedBy: 'A0-Orchestrator/Plugin-CounterAgent'
+    });
+  } catch (error) {
+    request.log.error({ error }, 'ENS profile image upload proxy failed');
+    return reply.code(502).send({ ok: false, error: 'ens_profile_image_upload_proxy_failed' });
   }
 });
 

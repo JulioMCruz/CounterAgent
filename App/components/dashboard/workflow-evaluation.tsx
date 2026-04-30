@@ -87,7 +87,7 @@ export function WorkflowEvaluation() {
             Live Agent Workflow
           </CardTitle>
           <p className="mt-1 text-sm text-muted-foreground">
-            Runs A0 → A3 quote → A2 decision → A3 dry-run → A4 report.
+            Runs Orchestration Agent → Execution Agent quote → Decision Agent → Execution Agent dry-run → Reporting Agent.
           </p>
         </div>
         <Button type="button" onClick={runWorkflow} disabled={isRunning || !address} size="sm">

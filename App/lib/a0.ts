@@ -10,12 +10,32 @@ export type SessionResolveRequest = {
   chainId: number
 }
 
+export type ResolvedMerchantConfig = {
+  walletAddress: `0x${string}`
+  ensName?: string | null
+  merchantEns?: string | null
+  ens?: {
+    name?: string
+    node?: `0x${string}`
+    owner?: `0x${string}`
+    resolver?: `0x${string}`
+    address?: `0x${string}`
+    records?: Record<string, string>
+  } | null
+  fxThresholdBps?: number | string
+  risk?: number | string
+  preferredStablecoin?: `0x${string}` | string
+  telegramChatId?: `0x${string}` | string
+  telegramChat?: string | null
+  active?: boolean
+}
+
 export type SessionResolveResponse =
   | {
       ok: true
       route: "dashboard"
       registered: true
-      merchant?: unknown
+      merchant?: ResolvedMerchantConfig
     }
   | {
       ok: true
@@ -71,6 +91,41 @@ export type OnboardingPrepareResponse = {
     nonce: string
     deadline: number
   }
+}
+
+export type EnsProfileRecordsRequest = {
+  merchantImage?: string
+  header?: string
+  website?: string
+  description?: string
+  socials?: {
+    twitter?: string
+    github?: string
+    discord?: string
+    telegram?: string
+    linkedin?: string
+    instagram?: string
+  }
+  subnames?: string[]
+}
+
+export type EnsProfileRecordsResponse = {
+  ok: true
+  records: Record<string, string>
+  note?: string
+  preparedBy?: string
+}
+
+export type EnsProfileImageUploadResponse = {
+  ok: true
+  kind: "avatar" | "header"
+  cid: string
+  ipfsUri: string
+  url: string
+  mimeType: string
+  size: number
+  preparedBy?: string
+  proxiedBy?: string
 }
 
 export type ReportPointer = {
@@ -150,6 +205,56 @@ export type WorkflowEvaluateResponse = {
   error?: string
 }
 
+const stablecoinSymbolsByAddress: Record<string, string> = {
+  "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": "USDC",
+  "0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42": "EURC",
+  "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2": "USDT",
+}
+
+export function shortenAddress(value?: string | null) {
+  if (!value) return "Not connected"
+  if (value.length <= 12) return value
+  return `${value.slice(0, 6)}...${value.slice(-4)}`
+}
+
+export function formatBpsAsPercent(value?: number | string | null) {
+  if (value === undefined || value === null || value === "") return "Not available"
+  const bps = typeof value === "number" ? value : Number(value)
+  if (!Number.isFinite(bps)) return "Not available"
+  return `${(bps / 100).toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: bps % 100 === 0 ? 0 : 2,
+  })}% minimum spread`
+}
+
+export function riskToleranceFromRegistryRisk(value?: number | string | null) {
+  if (value === undefined || value === null || value === "") return "Not available"
+  const risk = typeof value === "number" ? value : Number(value)
+  if (risk === 0) return "Conservative"
+  if (risk === 1) return "Moderate"
+  if (risk === 2) return "Aggressive"
+  return `Registry risk ${value}`
+}
+
+export function stablecoinSymbolFromAddress(value?: string | null) {
+  if (!value) return "Not available"
+  const normalized = value.toLowerCase()
+  if (normalized === "usdc" || normalized === "eurc" || normalized === "usdt") return normalized.toUpperCase()
+  return stablecoinSymbolsByAddress[normalized] ?? shortenAddress(value)
+}
+
+export function ensNameFromMerchant(merchant?: ResolvedMerchantConfig) {
+  return merchant?.ensName || merchant?.merchantEns || "Not available"
+}
+
+export function telegramDisplayFromMerchant(merchant?: ResolvedMerchantConfig) {
+  const value = merchant?.telegramChat || merchant?.telegramChatId
+  if (!value) return "Not available"
+  if (value.startsWith("@")) return value
+  if (/^-?\d+$/.test(value)) return value
+  return `Hash ${shortenAddress(value)}`
+}
+
 export async function resolveSession(input: SessionResolveRequest) {
   const res = await fetch(`${orchestratorUrl}/session/resolve`, {
     method: "POST",
@@ -190,6 +295,39 @@ export async function prepareOnboarding(input: OnboardingPrepareRequest) {
   }
 
   return res.json() as Promise<OnboardingPrepareResponse>
+}
+
+export async function prepareEnsProfileRecords(input: EnsProfileRecordsRequest) {
+  const res = await fetch(`${orchestratorUrl}/ens/profile/records`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  })
+
+  if (!res.ok) {
+    throw new Error(`ENS plugin profile record preparation failed: ${res.status}`)
+  }
+
+  return res.json() as Promise<EnsProfileRecordsResponse>
+}
+
+export async function uploadEnsProfileImage(input: { file: File; kind: "avatar" | "header" }) {
+  const form = new FormData()
+  form.append("file", input.file)
+  form.append("kind", input.kind)
+
+  const res = await fetch(`${orchestratorUrl}/ens/profile/upload`, {
+    method: "POST",
+    body: form,
+  })
+
+  if (!res.ok) {
+    const payload = await res.json().catch(() => ({}))
+    const error = typeof payload.error === "string" ? payload.error : `ENS image upload failed: ${res.status}`
+    throw new Error(error)
+  }
+
+  return res.json() as Promise<EnsProfileImageUploadResponse>
 }
 
 export async function evaluateWorkflow(input: WorkflowEvaluateRequest) {

@@ -1,4 +1,4 @@
-import { base, baseSepolia } from "wagmi/chains"
+import { base, baseSepolia, sepolia } from "wagmi/chains"
 
 export const activeChain =
   process.env.NEXT_PUBLIC_CHAIN === "base" ? base : baseSepolia
@@ -15,6 +15,21 @@ export const activeChainSwitchParams = {
 } as const
 
 export const dynamicEvmNetworks = [
+  {
+    blockExplorerUrls: ["https://sepolia.etherscan.io"],
+    chain: "EVM",
+    chainId: sepolia.id,
+    chainName: "Sepolia",
+    iconUrls: [],
+    isTestnet: true,
+    name: sepolia.name,
+    nativeCurrency: sepolia.nativeCurrency,
+    networkId: sepolia.id,
+    privateCustomerRpcUrls: [],
+    rpcUrls: ["https://ethereum-sepolia-rpc.publicnode.com"],
+    shortName: "sepolia",
+    vanityName: "Ethereum Sepolia",
+  },
   {
     blockExplorerUrls: ["https://sepolia.basescan.org"],
     chain: "EVM",

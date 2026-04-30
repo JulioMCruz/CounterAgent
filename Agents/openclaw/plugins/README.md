@@ -4,6 +4,7 @@ Agent-specific plugins and adapters go here.
 
 Current baseline:
 
+- Shared IPFS: `Plugin-IPFS-Pinata` exposes `POST /ipfs/upload` for reusable Pinata/IPFS uploads.
 - A0 Orchestrator: none bundled.
 - A1 Monitor: ENS/config adapter planned.
 - A2 Decision: scoring adapter planned.
