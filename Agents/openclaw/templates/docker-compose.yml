@@ -91,6 +91,18 @@ services:
       - GENSYN_AXL_AGENT_ID=counteragent-a0
     networks: [agents]
 
+  ipfs-pinata-plugin:
+    build: ./agents/openclaw/plugins/Plugin-IPFS-Pinata
+    container_name: counteragent-ipfs-pinata-plugin
+    restart: unless-stopped
+    environment:
+      - PORT=8793
+      - CORS_ORIGIN=https://counteragent.netlify.app,https://counteragent.perkos.xyz,https://orchestrator.counteragent.perkos.xyz
+      - PINATA_JWT=${PINATA_JWT}
+      - PINATA_GATEWAY_URL=${PINATA_GATEWAY_URL:-https://gateway.pinata.cloud/ipfs}
+      - IPFS_UPLOAD_MAX_BYTES=${IPFS_UPLOAD_MAX_BYTES:-10000000}
+    networks: [agents]
+
   uniswap-swap-plugin:
     build: ./agents/a3-execution/Plugin-Uniswap-SwapExecution
     container_name: counteragent-uniswap-swap-plugin

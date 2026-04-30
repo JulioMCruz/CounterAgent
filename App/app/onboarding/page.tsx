@@ -107,7 +107,7 @@ export default function OnboardingPage() {
 
       let prepared = preparedRegistration
       if (!prepared) {
-        setStatusText("A0 is preparing delegated registry authorization…")
+        setStatusText("Orchestration Agent is preparing delegated registry authorization…")
         prepared = await prepareOnboarding({
           walletAddress: address,
           chainId: activeChain.id,
@@ -142,7 +142,7 @@ export default function OnboardingPage() {
       setPreparedRegistration(null)
       setDebugText(`signature=${registrationSignature.slice(0, 10)}… len=${registrationSignature.length}`)
 
-      setStatusText("A0 is registering your treasury and provisioning ENS…")
+      setStatusText("Orchestration Agent is registering your treasury and provisioning ENS…")
       const onboarding = await startOnboarding({
         walletAddress: address,
         chainId: activeChain.id,
@@ -161,7 +161,7 @@ export default function OnboardingPage() {
       if (!onboarding.ok) {
         throw new Error(onboarding.error || "Orchestrator onboarding failed")
       }
-      setDebugText(`A0 status=${onboarding.status ?? "ok"} tx=${onboarding.registryTxHash?.slice(0, 10) ?? "n/a"}`)
+      setDebugText(`Orchestration Agent status=${onboarding.status ?? "ok"} tx=${onboarding.registryTxHash?.slice(0, 10) ?? "n/a"}`)
 
       if (onboarding.report?.storageUri) {
         setReportUri(onboarding.report.storageUri)
@@ -252,7 +252,7 @@ export default function OnboardingPage() {
                 </span>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                A1 ENS/Monitor will provision this subname and assign it to your connected wallet.
+                ENS Monitor Agent will provision this subname and assign it to your connected wallet.
               </p>
             </CardContent>
           </Card>
@@ -341,7 +341,7 @@ export default function OnboardingPage() {
 
         {reportUri && (
           <p className="rounded-lg bg-success/10 px-4 py-2 text-center text-xs font-medium text-success">
-            A4 report pointer: {reportUri}
+            Reporting Agent pointer: {reportUri}
           </p>
         )}
 
