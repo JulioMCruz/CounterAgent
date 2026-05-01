@@ -22,7 +22,7 @@ Merchants accepting crypto payments leak value every day to poor FX timing:
 
 ## The Solution
 
-CounterAgent is a 5-agent autonomous system that watches your wallet, scores live FX rates, and converts stablecoins at the optimal moment via Uniswap v3 — with KeeperHub guaranteeing execution and **x402 micropayments settling every inter-agent step on-chain**. Agents communicate over a **Gensyn AXL encrypted P2P mesh** — no central server, no single point of failure. You get a Telegram alert when it happens.
+CounterAgent is a 5-agent autonomous system that watches your wallet, scores live FX rates, and converts stablecoins at the optimal moment via Uniswap v3 — with **x402 micropayments settling every inter-agent step on-chain**. Agents communicate over a **Gensyn AXL encrypted P2P mesh** — no central server, no single point of failure. You get a Telegram alert when it happens.
 
 Agents are distributed across **4 AXL nodes**, each with a distinct role:
 
@@ -36,7 +36,7 @@ Agents are distributed across **4 AXL nodes**, each with a distinct role:
 1. **Agent 0 (Orchestrator)** — coordinates all agents via AXL, owns failure and recovery decisions
 2. **Agent 1 (Monitor)** — reads ENS config, watches wallet balances and Uniswap pool rates in real time
 3. **Agent 2 (Decision)** — runs hold/convert scoring logic weighted by FX spread, fee, and risk tolerance
-4. **Agent 3 (Execution)** — submits swaps via Uniswap v3 on Base; KeeperHub MCP handles gas, MEV protection, retries; x402 handles inter-agent payment settlement
+4. **Agent 3 (Execution)** — submits swaps via Uniswap v3 on Base and Celo; enforces guardrails (max_swap_amount, daily_limit, max_slippage); x402 handles inter-agent payment settlement
 5. **Agent 4 (Reporting)** — logs every decision to 0G Storage; sends Telegram alert to merchant
 
 ---
@@ -47,7 +47,7 @@ Agents are distributed across **4 AXL nodes**, each with a distinct role:
 %%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#E8E4F8', 'primaryBorderColor': '#9B8EC4', 'primaryTextColor': '#231F20', 'lineColor': '#888888', 'secondaryColor': '#FFF9E0', 'tertiaryColor': '#E8F0FF'}}}%%
 
 flowchart TD
-    PAY["💳 Incoming Payment\nUSDC · EURC · USDT on Base"]
+    PAY["💳 Incoming Payment\nUSDC · EURC · USDT\nBase · Celo"]
 
     subgraph AXL ["Gensyn AXL — Encrypted P2P Mesh"]
         subgraph NODE1 ["🟣 Coordinator Node"]
@@ -60,18 +60,17 @@ flowchart TD
             A2["⚖️ AGENT 2 — Decision\nFX spread × fee × risk tolerance\n→ HOLD or CONVERT"]
         end
         subgraph NODE4 ["🟣 Action Node"]
-            A3["⚡ AGENT 3 — Execution\nswap via Uniswap v3\nKeeperHub: gas · MEV protection · retry"]
+            A3["⚡ AGENT 3 — Execution\nswap via Uniswap v3\nenforces guardrails · max_swap · slippage · daily_limit"]
             A4["📣 AGENT 4 — Reporting\nwrite to 0G Storage · Telegram alert"]
         end
     end
 
-    ENS["📋 ENS Text Records\nfx_threshold · risk_tolerance\npreferred_stablecoin · telegram_chat_id"]
-    UNI["🦄 Uniswap v3\nEURC / USDT → USDC\nBase liquidity pools"]
-    KH["🔁 KeeperHub MCP\ngas estimation · MEV protection\nretry with exponential backoff"]
+    ENS["📋 ENS Text Records\nfx_threshold · risk_tolerance · preferred_stablecoin\ntelegram_chat_id · confirm_mode · max_swap_amount\ndaily_limit · max_slippage"]
+    UNI["🦄 Uniswap v3\nEURC / USDT → USDC\nBase · Celo liquidity pools"]
     ZERO["🗄 0G Storage\nimmutable audit log\nFX rate · decision · tx hash · outcome"]
-    TG["📱 Telegram Bot API\n✅ swap executed · ⏸ hold · ⚠️ anomaly · 🛑 halt"]
+    TG["📱 Telegram Bot API\n✅ swap executed · ⏸ hold · ⚠️ anomaly · 🛑 halt\nreply YES / NO in strict confirm mode"]
 
-    BASE[["⬡ Base · Ethereum L2\nx402 on-chain settlement · Uniswap v3 · KeeperHub · ENS registry"]]
+    BASE[["⬡ Base · Celo\nx402 on-chain settlement · Uniswap v3 · ENS registry · 0G Storage"]]
 
     PAY --> A0
     A0 --> A1
@@ -81,14 +80,12 @@ flowchart TD
     A2 -- "x402 micropayment" --> A3
     A2 -. failure .-> A0
     A3 -- swap --> UNI
-    A3 --> KH
     A3 -- "x402 micropayment" --> A4
     A4 -- write --> ZERO
     A4 -- alert --> TG
     A4 -. complete .-> A0
 
     UNI --- BASE
-    KH --- BASE
     ENS --- BASE
     ZERO --- BASE
 ```
@@ -140,20 +137,16 @@ The full ENS config schema including guardrails:
 | `counteragent.max_slippage` | `0.003` | Reject swap if slippage exceeds 0.3% |
 
 ### Uniswap v3 — Swap Execution
-Agent 3 executes swaps across Base liquidity pools:
+Agent 3 executes swaps across Base and Celo liquidity pools:
 
-| Pair | Pool |
-|---|---|
-| EURC → USDC | Uniswap v3 Base |
-| USDT → USDC | Uniswap v3 Base |
-| USDC → EURC | Uniswap v3 Base |
-
-### KeeperHub — Execution Reliability
-KeeperHub MCP server handles:
-- Gas estimation and nonce management
-- MEV protection
-- Retry logic with exponential backoff
-- Guaranteed delivery on Base
+| Pair | Network | Pool |
+|---|---|---|
+| EURC → USDC | Base | Uniswap v3 |
+| USDT → USDC | Base | Uniswap v3 |
+| USDC → EURC | Base | Uniswap v3 |
+| cEUR → cUSD | Celo | Uniswap v3 |
+| cKES → cUSD | Celo | Uniswap v3 |
+| cGHS → cUSD | Celo | Uniswap v3 |
 
 ### 0G Storage — Immutable Audit Log
 Every consensus round writes to 0G:
@@ -227,7 +220,7 @@ All halts are logged to 0G Storage with timestamp and reason. The merchant recei
 5. When spread exceeds threshold → AXL message sent to Analyst Node
 6. Analyst Node (Agent 2) scores: FX rate × swap fee × risk tolerance → HOLD or CONVERT
 7. If CONVERT → x402 micropayment triggers Action Node (Agent 3)
-8. Agent 3 submits swap via Uniswap v3; KeeperHub guarantees delivery
+8. Agent 3 submits swap via Uniswap v3 on Base or Celo; enforces guardrails before execution
 9. x402 micropayment triggers Agent 4 (Reporting) on Action Node
 10. Agent 4 writes decision + result to 0G Storage
 11. Agent 4 fires Telegram alert to merchant
@@ -241,22 +234,23 @@ All halts are logged to 0G Storage with timestamp and reason. The merchant recei
 |---|---|
 | Agent Framework | Claude Agent SDK (Anthropic) |
 | AI Models | Claude Sonnet 4.6 |
-| Network | Base (Ethereum L2) |
+| Networks | Base (Ethereum L2) · Celo |
 | Agent Transport | Gensyn AXL (encrypted P2P mesh · 4 nodes) |
 | Inter-Agent Payments | x402 micropayments (on-chain settlement) |
 | Swap Execution | Uniswap v3 |
-| Execution Reliability | KeeperHub MCP |
 | Config Store | ENS Text Records (on-chain) |
 | Audit Log | 0G Storage |
 | Merchant Alerts | Telegram Bot API |
 | Frontend | React + TypeScript + Vite |
-| Stablecoins | USDC · EURC · USDT |
+| Stablecoins | USDC · EURC · USDT (Base) · cUSD · cEUR · cKES · cGHS · eXOF (Celo) |
 
 ---
 
 ## Supported Stablecoins
 
-CounterAgent operates on Base with:
+CounterAgent operates on both Base and Celo, giving merchants access to global and regional stablecoins.
+
+**Base**
 
 | Token | Issuer | Peg |
 |---|---|---|
@@ -264,7 +258,17 @@ CounterAgent operates on Base with:
 | EURC | Circle | Euro |
 | USDT | Tether | US Dollar |
 
-> **Why we originally chose Celo:** Celo's Mento protocol offers regional stablecoins (cUSD, cEUR, cREAL, cKES, cCOP, cGHS, eXOF, PUSO) which would have made CounterAgent a truly global multi-currency treasury tool. We pivoted to Base when KeeperHub — a core execution sponsor — confirmed they do not support Celo. Regional stablecoin expansion is on the roadmap.
+**Celo**
+
+| Token | Issuer | Peg |
+|---|---|---|
+| cUSD | Mento | US Dollar |
+| cEUR | Mento | Euro |
+| cKES | Mento | Kenyan Shilling |
+| cGHS | Mento | Ghanaian Cedi |
+| eXOF | Mento | West African CFA Franc |
+
+> **Why both networks?** Base gives us deep USDC/EURC liquidity and x402 settlement. Celo gives us Mento-issued regional stablecoins — cKES, cGHS, eXOF — that are essential for African merchants receiving payments in local currency pegs. CounterAgent is the only autonomous treasury tool that bridges both.
 
 ---
 
@@ -288,33 +292,19 @@ CounterAgent is mobile-first — the natural entry point is the Telegram notific
 **Color palette:** Flamingo `#FF5CB9` (primary) · Citrus `#FF9700` (accent) · Charcoal `#231F20` (text)
 
 <p align="center">
-  <a href="https://candid-fairy-ac610c.netlify.app/">
-    <img src="./assets/screen-landing.svg" width="30%" alt="Landing screen" />
-  </a>
-  &nbsp;
-  <a href="https://candid-fairy-ac610c.netlify.app/">
-    <img src="./assets/screen-dashboard.svg" width="30%" alt="Dashboard screen" />
-  </a>
-  &nbsp;
-  <a href="https://candid-fairy-ac610c.netlify.app/">
-    <img src="./assets/screen-analytics.svg" width="30%" alt="Analytics screen" />
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://candid-fairy-ac610c.netlify.app/"><strong>📱 View all 6 screens — Live Mockup →</strong></a>
+  <a href="https://admirable-panda-65cc61.netlify.app/"><strong>📱 View all 6 screens — Live Mockup →</strong></a>
 </p>
 
 **6 screens:** Landing · Dashboard · Onboarding · Analytics · Alerts · Settings
 
 | Screen | Description |
 |---|---|
-| Landing | Hero, CTA, sponsor badges, feature cards |
-| Dashboard | Balance hero card, token holdings, savings, agent activity log |
-| Onboarding | Step progress, ENS input, FX slider, risk selector, Telegram ID, stablecoin picker |
-| Analytics | Savings chart, stats grid, pair breakdown by volume |
-| Alerts | Telegram status banner, filtered alert feed with severity badges |
-| Settings | Wallet card, treasury config, notification toggles, integration status |
+| Landing | Hero, CTA, Base / Celo network selector, partner badges (Uniswap · Gensyn AXL · ENS · 0G) |
+| Dashboard | Balance hero card, token holdings, savings vs Stripe FX, guardrails status, agent activity log |
+| Onboarding | 6-step wizard: ENS wallet → network + stablecoin → FX threshold → guardrails (spending cap, daily limit, slippage, confirm mode) → Telegram ID → review |
+| Analytics | Cumulative savings chart, stats grid, pair breakdown by volume (Base + Celo pools) |
+| Alerts | Telegram status banner, pending swap confirmation (YES / NO), full alert feed with severity badges |
+| Settings | Wallet card, treasury guardrail config with ENS field names, network toggle, notification preferences |
 
 ---
 
@@ -325,7 +315,7 @@ git clone https://github.com/JulioMCruz/CounterAgent
 cd CounterAgent
 npm install
 cp .env.example .env
-# Add API keys: Anthropic, KeeperHub, Telegram Bot, 0G
+# Add API keys: Anthropic, Telegram Bot, 0G
 npm run dev
 ```
 
@@ -333,10 +323,10 @@ npm run dev
 
 ```env
 ANTHROPIC_API_KEY=
-KEEPERHUB_API_KEY=
 TELEGRAM_BOT_TOKEN=
 ZERO_G_API_KEY=
 BASE_RPC_URL=
+CELO_RPC_URL=
 ```
 
 ---
@@ -345,11 +335,10 @@ BASE_RPC_URL=
 
 | Sponsor | Prize | Integration |
 |---|---|---|
-| Uniswap Foundation | $5,000 | Swap execution via Uniswap v3 on Base |
-| KeeperHub | $5,000 | Execution reliability MCP layer |
-| Gensyn | $5,000 | AXL encrypted P2P mesh as agent transport layer (4 nodes) |
-| ENS | — | On-chain merchant config via text records |
-| 0G Labs | — | Immutable decentralised audit log |
+| Uniswap Foundation | $5,000 | Swap execution via Uniswap v3 on Base · EURC/USDC · USDT/USDC · USDC/EURC |
+| Gensyn | $5,000 | AXL encrypted P2P mesh as agent transport layer across 4 distinct nodes |
+| ENS | $4,000 | Best ENS Integration for AI Agents · on-chain merchant config + guardrails via 8 ENS text records |
+| 0G Labs | — | Immutable decentralised audit log for every decision and swap |
 
 ---
 
@@ -359,7 +348,7 @@ Built at **ETHGlobal Open Agents 2026** — April 24 to May 3, 2026
 
 | Name | Role | Contact |
 |---|---|---|
-| Abena | Product & Research | [@abena_eth](https://twitter.com/abena_eth) · abena@ethaccra.xyz |
+| Abena | Product & Research | [@abena_eth](https://twitter.com/abena_eth) · abena@bluewin.ch |
 | Julio M Cruz | Engineering | [GitHub: JulioMCruz](https://github.com/JulioMCruz) |
 
 ---
