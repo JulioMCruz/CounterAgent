@@ -1,7 +1,4 @@
-export const orchestratorUrl =
-  process.env.NEXT_PUBLIC_ORCHESTRATOR_URL ||
-  process.env.NEXT_PUBLIC_A0_URL ||
-  "http://localhost:8787"
+export const orchestratorUrl = "/api/a0"
 
 export const a0Url = orchestratorUrl
 
@@ -205,6 +202,80 @@ export type WorkflowEvaluateResponse = {
   error?: string
 }
 
+export type DashboardMonitorEvent = {
+  agent: "A1"
+  type: "ens-config" | "merchant-lookup" | "wallet-watch" | "threshold-signal" | "provision"
+  merchant: string
+  ensName?: string
+  status: "loaded" | "not-found" | "watching" | "signal" | "provisioned" | "error"
+  fxThresholdBps?: string
+  riskTolerance?: string
+  preferredStablecoin?: string
+  summary: string
+  timestamp: string
+}
+
+export type DashboardDecision = {
+  agent: "A2"
+  workflowId?: string
+  merchant: string
+  action: "HOLD" | "CONVERT"
+  confidence: number
+  spreadBps?: number
+  netScoreBps?: number
+  thresholdBps?: number
+  fromToken?: string
+  toToken?: string
+  amount?: string
+  reason?: string
+  timestamp: string
+}
+
+export type DashboardExecution = {
+  agent: "A3"
+  type: "quote" | "execution"
+  workflowId?: string
+  merchant: string
+  fromToken?: string
+  toToken?: string
+  amount?: string
+  rate?: number
+  status: string
+  quoteId?: string
+  txHash?: string | null
+  estimatedAmountOut?: string
+  timestamp: string
+}
+
+export type DashboardReport = {
+  agent: "A4"
+  reportId: string
+  merchant: string
+  merchantEns?: string
+  decision: string
+  summary: string
+  storageUri?: string
+  contentHash?: string
+  txHash?: string
+  savingsEstimateUsd?: string
+  timestamp: string
+}
+
+export type DashboardState = {
+  ok: true
+  merchant: string
+  monitor: DashboardMonitorEvent[]
+  decisions: DashboardDecision[]
+  executions: DashboardExecution[]
+  reports: DashboardReport[]
+  kpis: {
+    totalSavedUsd: string
+    swapsExecuted: number
+    volumeUsd: string
+  }
+  unavailable?: string[]
+}
+
 const stablecoinSymbolsByAddress: Record<string, string> = {
   "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": "USDC",
   "0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42": "EURC",
@@ -342,4 +413,26 @@ export async function evaluateWorkflow(input: WorkflowEvaluateRequest) {
   }
 
   return res.json() as Promise<WorkflowEvaluateResponse>
+}
+
+export async function fetchDashboardState(walletAddress: `0x${string}`) {
+  const params = new URLSearchParams({ merchant: walletAddress })
+  const res = await fetch(`${orchestratorUrl}/dashboard/state?${params.toString()}`)
+  const contentType = res.headers.get("content-type") || ""
+  const text = await res.text()
+
+  if (!res.ok || !contentType.includes("application/json")) {
+    return {
+      ok: true,
+      merchant: walletAddress,
+      monitor: [],
+      decisions: [],
+      executions: [],
+      reports: [],
+      kpis: { totalSavedUsd: "0.00", swapsExecuted: 0, volumeUsd: "0.00" },
+      unavailable: ["A0-dashboard-state"],
+    } satisfies DashboardState
+  }
+
+  return JSON.parse(text) as DashboardState
 }

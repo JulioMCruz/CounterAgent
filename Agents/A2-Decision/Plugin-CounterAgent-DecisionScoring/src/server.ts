@@ -38,6 +38,33 @@ const defaultBaselineRate = Number(process.env.DECISION_DEFAULT_BASELINE_RATE ??
 
 const app = Fastify({ logger: true });
 
+type RecentDecision = {
+  agent: 'A2';
+  workflowId?: string;
+  merchant: string;
+  action: 'HOLD' | 'CONVERT';
+  confidence: number;
+  spreadBps: number;
+  netScoreBps: number;
+  thresholdBps: number;
+  fromToken: string;
+  toToken: string;
+  amount: string;
+  reason: string;
+  timestamp: string;
+};
+
+const recentDecisions = new Map<string, RecentDecision[]>();
+const recentLimit = Number(process.env.RECENT_EVENT_LIMIT ?? 20);
+const merchantKey = (value: string) => value.toLowerCase();
+
+function pushRecentDecision(event: RecentDecision) {
+  const key = merchantKey(event.merchant);
+  const items = recentDecisions.get(key) ?? [];
+  items.unshift(event);
+  recentDecisions.set(key, items.slice(0, recentLimit));
+}
+
 await app.register(cors, {
   origin: corsOrigins,
   methods: ['POST', 'GET', 'OPTIONS']
@@ -84,6 +111,19 @@ function evaluateDecision(input: z.infer<typeof decisionSchema>) {
   };
 }
 
+app.get('/decision/recent', async (request, reply) => {
+  const merchant = typeof (request.query as { merchant?: unknown }).merchant === 'string'
+    ? (request.query as { merchant: string }).merchant
+    : '';
+
+  if (!isAddress(merchant)) {
+    return reply.code(400).send({ ok: false, error: 'invalid_merchant' });
+  }
+
+  const limit = Math.min(Number((request.query as { limit?: string }).limit ?? recentLimit), recentLimit);
+  return reply.send({ ok: true, merchant, decisions: (recentDecisions.get(merchantKey(merchant)) ?? []).slice(0, limit) });
+});
+
 app.get('/healthz', async () => ({
   ok: true,
   status: 'live',
@@ -103,6 +143,21 @@ app.post('/decision/evaluate', async (request, reply) => {
   }
 
   const decision = evaluateDecision(parsed.data);
+  pushRecentDecision({
+    agent: 'A2',
+    workflowId: parsed.data.workflowId,
+    merchant: parsed.data.merchantWallet,
+    action: decision.action,
+    confidence: decision.confidence,
+    spreadBps: decision.spreadBps,
+    netScoreBps: decision.netScoreBps,
+    thresholdBps: decision.thresholdBps,
+    fromToken: parsed.data.fromToken,
+    toToken: parsed.data.toToken,
+    amount: parsed.data.amount,
+    reason: decision.reason,
+    timestamp: new Date().toISOString()
+  });
 
   return reply.send({
     ok: true,
