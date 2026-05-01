@@ -43,6 +43,17 @@ export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }
   const [fxThresholdBps, setFxThresholdBps] = useState("50")
   const [riskTolerance, setRiskTolerance] = useState<RiskTolerance>("moderate")
 
+  function loadConvertDemo() {
+    setAmount("1")
+    setFromToken("EURC")
+    setToToken("USDC")
+    setBaselineRate("1.07")
+    setFxThresholdBps("50")
+    setRiskTolerance("moderate")
+    setResult(null)
+    setError(null)
+  }
+
   const workflowId = useMemo(() => {
     if (!address) return undefined
     return `dashboard-${address.slice(2, 10).toLowerCase()}-${Date.now()}`
@@ -117,13 +128,18 @@ export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }
             Live Agent Workflow
           </CardTitle>
           <p className="mt-1 text-sm text-muted-foreground">
-            Runs Orchestration Agent → Uniswap v4 quote → Decision Agent → Execution dry-run → Reporting Agent.
+            Runs Orchestration Agent → Uniswap v4 quote → Decision Agent → Execution dry-run → Reporting Agent. Dry-run does not open a wallet popup or move funds.
           </p>
         </div>
-        <Button type="button" onClick={runWorkflow} disabled={isRunning || !address} size="sm">
-          {isRunning ? <Loader2 className="animate-spin" /> : <Play />}
-          {isRunning ? "Running" : "Run dry-run"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" onClick={loadConvertDemo} disabled={isRunning} size="sm">
+            Load convert demo
+          </Button>
+          <Button type="button" onClick={runWorkflow} disabled={isRunning || !address} size="sm">
+            {isRunning ? <Loader2 className="animate-spin" /> : <Play />}
+            {isRunning ? "Running agents" : "Run agent dry-run"}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4 px-5 pb-5">
         <div className="grid gap-3 rounded-xl border border-border bg-background/60 p-3 sm:grid-cols-2 lg:grid-cols-6">
@@ -183,8 +199,13 @@ export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }
         )}
 
         {result && (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-xl bg-background/80 p-3">
+          <div className="space-y-3">
+            <p className="rounded-lg border border-border bg-background/70 p-3 text-xs text-muted-foreground">
+              Dry-run completed: no wallet signature was requested and no funds moved. {decision?.action === "HOLD" ? "Execution was skipped because the Decision Agent chose HOLD." : "Execution was simulated because the Decision Agent chose CONVERT."}
+              {decision?.reason ? ` Reason: ${decision.reason}` : ""}
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-xl bg-background/80 p-3">
               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 <ArrowRightLeft className="h-3.5 w-3.5" /> Quote
               </div>
@@ -194,9 +215,9 @@ export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }
               <p className="text-xs text-muted-foreground">Rate {formatRate(quote?.rate)}{quoteProvider ? ` · ${quoteProvider}` : ""}</p>
               {estimatedAmountOut && <p className="text-xs text-muted-foreground">Est. out {estimatedAmountOut} {toToken}</p>}
               {fallbackReason && <p className="mt-1 text-[11px] text-warning">Fallback: {fallbackReason}</p>}
-            </div>
+              </div>
 
-            <div className="rounded-xl bg-background/80 p-3">
+              <div className="rounded-xl bg-background/80 p-3">
               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 <ShieldCheck className="h-3.5 w-3.5" /> Decision
               </div>
@@ -204,9 +225,9 @@ export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }
                 {decision?.action ?? "—"}
               </p>
               <p className="text-xs text-muted-foreground">Confidence {formatConfidence(decision?.confidence)}</p>
-            </div>
+              </div>
 
-            <div className="rounded-xl bg-background/80 p-3">
+              <div className="rounded-xl bg-background/80 p-3">
               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 <CheckCircle2 className="h-3.5 w-3.5" /> Execution
               </div>
@@ -214,9 +235,9 @@ export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }
                 {executionStatus ?? "—"}
               </p>
               <p className="text-xs text-muted-foreground">No funds moved</p>
-            </div>
+              </div>
 
-            <div className="rounded-xl bg-background/80 p-3">
+              <div className="rounded-xl bg-background/80 p-3">
               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 <Database className="h-3.5 w-3.5" /> Report
               </div>
@@ -224,6 +245,7 @@ export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }
                 {shortHash(reportUri)}
               </p>
               <p className="text-xs text-muted-foreground">0G / audit pointer</p>
+              </div>
             </div>
           </div>
         )}
