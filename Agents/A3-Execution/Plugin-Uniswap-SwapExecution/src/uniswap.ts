@@ -24,7 +24,9 @@ export type NormalizedUniswapQuote = {
   tokenIn: Address;
   tokenOut: Address;
   amountIn: string;
+  amountInRaw: string;
   estimatedAmountOut: string;
+  estimatedAmountOutRaw: string;
   rate: number;
   feeBps: number;
   priceImpactBps: number;
@@ -33,6 +35,33 @@ export type NormalizedUniswapQuote = {
   gasFeeUsd?: string;
   rawQuote: unknown;
 };
+
+export type NormalizedUniswapSwap = {
+  provider: 'uniswap-trading-api';
+  status: 'swap-built';
+  requestId?: string;
+  transaction?: {
+    to?: Address;
+    from?: Address;
+    data?: `0x${string}`;
+    value?: string;
+    gasLimit?: string;
+    chainId?: number;
+  };
+  rawSwap: unknown;
+};
+
+export class UniswapApiError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+    readonly body?: string,
+    readonly path?: string
+  ) {
+    super(message);
+    this.name = 'UniswapApiError';
+  }
+}
 
 export class UniswapTradingApiClient {
   constructor(
@@ -55,7 +84,9 @@ export class UniswapTradingApiClient {
         const response = await fetch(`${this.config.baseUrl.replace(/\/$/, '')}${path}`, {
           method: 'POST',
           headers: {
+            accept: 'application/json',
             'content-type': 'application/json',
+            'x-universal-router-version': '2.0',
             ...(this.config.apiKey ? { 'x-api-key': this.config.apiKey } : {})
           },
           body: JSON.stringify(body),
@@ -65,7 +96,12 @@ export class UniswapTradingApiClient {
         const text = await response.text();
 
         if (!response.ok) {
-          lastError = new Error(`uniswap_${path}_failed_${response.status}: ${text.slice(0, 240)}`);
+          lastError = new UniswapApiError(
+            `uniswap_${path.replace('/', '')}_failed_${response.status}: ${text.slice(0, 240)}`,
+            response.status,
+            text.slice(0, 1_000),
+            path
+          );
           if (response.status >= 500 || response.status === 404 || response.status === 429) continue;
           throw lastError;
         }
@@ -95,12 +131,19 @@ export class UniswapTradingApiClient {
       tokenOutChainId: input.chainId,
       swapper: input.merchantWallet,
       slippageTolerance: slippagePct,
-      urgency: 'normal'
+      generatePermitAsTransaction: false,
+      routingPreference: 'BEST_PRICE',
+      spreadOptimization: 'EXECUTION',
+      urgency: 'normal',
+      permitAmount: 'FULL',
+      protocols: ['V4', 'V3', 'V2']
     });
 
     const quote = data.quote ?? data;
-    const outputRaw = BigInt(quote?.output?.amount ?? 0);
-    const inputRaw = BigInt(quote?.input?.amount ?? amountRaw);
+    const outputRawValue = quote?.output?.amount ?? quote?.outputAmount ?? quote?.amountOut ?? '0';
+    const inputRawValue = quote?.input?.amount ?? quote?.inputAmount ?? amountRaw;
+    const outputRaw = BigInt(outputRawValue || 0);
+    const inputRaw = BigInt(inputRawValue || amountRaw);
     const outputHuman = Number(formatUnits(outputRaw, input.toToken.decimals));
     const inputHuman = Number(formatUnits(inputRaw, input.fromToken.decimals));
     const rate = inputHuman > 0 ? outputHuman / inputHuman : 0;
@@ -108,14 +151,20 @@ export class UniswapTradingApiClient {
     return {
       quoteId: String(quote?.quoteId ?? data.requestId ?? `${Date.now()}`),
       provider: 'uniswap-trading-api',
-      route: typeof quote?.routeString === 'string' ? [quote.routeString] : [input.fromToken.symbol, input.toToken.symbol],
+      route: Array.isArray(quote?.route)
+        ? quote.route.map((part: unknown) => (typeof part === 'string' ? part : JSON.stringify(part))).slice(0, 8)
+        : typeof quote?.routeString === 'string'
+          ? [quote.routeString]
+          : [input.fromToken.symbol, input.toToken.symbol],
       tokenIn: input.fromToken.address,
       tokenOut: input.toToken.address,
       amountIn: input.amount,
-      estimatedAmountOut: outputHuman.toFixed(6),
+      amountInRaw: inputRaw.toString(),
+      estimatedAmountOut: outputHuman.toFixed(input.toToken.decimals),
+      estimatedAmountOutRaw: outputRaw.toString(),
       rate,
-      feeBps: 0,
-      priceImpactBps: Number(quote?.priceImpactBps ?? 0),
+      feeBps: Number(quote?.aggregatedOutputs?.[0]?.bps ?? quote?.feeBps ?? 0),
+      priceImpactBps: Number(quote?.priceImpactBps ?? quote?.priceImpact?.bps ?? 0),
       slippageBps: input.slippageBps,
       gasFeeWei: quote?.gasFee ?? data.gasFee,
       gasFeeUsd: quote?.gasFeeUSD ?? data.gasFeeUSD,
@@ -133,7 +182,7 @@ export class UniswapTradingApiClient {
     });
   }
 
-  async buildSwap(input: { quote: unknown; permitData?: unknown; signature?: `0x${string}` }) {
+  async buildSwap(input: { quote: unknown; permitData?: unknown; signature?: `0x${string}` }): Promise<NormalizedUniswapSwap> {
     const body: Record<string, unknown> = {
       quote: input.quote,
       simulateTransaction: true
@@ -142,6 +191,25 @@ export class UniswapTradingApiClient {
     if (input.permitData) body.permitData = input.permitData;
     if (input.signature && input.signature !== '0x') body.signature = input.signature;
 
-    return this.post('/swap', body);
+    const data = await this.post<Record<string, any>>('/swap', body);
+    const rawTx = data.swap ?? data.transaction ?? data;
+    const tx = rawTx?.transaction ?? rawTx;
+
+    return {
+      provider: 'uniswap-trading-api',
+      status: 'swap-built',
+      requestId: data.requestId ?? rawTx?.requestId,
+      transaction: tx
+        ? {
+            to: tx.to,
+            from: tx.from,
+            data: tx.data,
+            value: tx.value,
+            gasLimit: tx.gasLimit ?? tx.gas,
+            chainId: tx.chainId
+          }
+        : undefined,
+      rawSwap: data
+    };
   }
 }

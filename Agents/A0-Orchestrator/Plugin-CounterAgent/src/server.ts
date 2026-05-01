@@ -897,7 +897,7 @@ app.get('/dashboard/state', async (request, reply) => {
   if (reportResult.status === 'rejected') unavailable.push('A4');
 
   const executionEvents = executions.filter((event) => event.type === 'execution');
-  const swapsExecuted = executionEvents.filter((event) => ['dry-run', 'executed', 'confirmed'].includes(event.status)).length;
+  const swapsExecuted = executionEvents.filter((event) => ['dry-run', 'fallback-dry-run', 'executed', 'confirmed'].includes(event.status)).length;
   const volumeUsd = executionEvents.reduce((sum, event) => sum + parseAmount(event.amount), 0);
   const reportSavings = reports.reduce((sum, report) => sum + parseAmount(report.savingsEstimateUsd), 0);
   const fallbackSavings = executions.reduce((sum, event) => {

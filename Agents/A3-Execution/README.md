@@ -4,9 +4,11 @@ Owns swap quote and execution. This is the agent that works with Uniswap for quo
 
 Sponsor-visible plugin implementation:
 
-- `Plugin-Uniswap-SwapExecution/` exposes `GET /healthz`, `POST /execution/quote`, `POST /execution/execute`, and `POST /execution/confirm`.
+- `Plugin-Uniswap-SwapExecution/` exposes `GET /healthz`, `GET /swap/recent`, `POST /execution/quote`, `POST /execution/swap`, `POST /execution/execute`, and `POST /execution/confirm`.
+- Quote flow is `UNISWAP_QUOTE_MODE=api-first`: call Uniswap Trading API first, then fall back with explicit metadata if the API/key/chain/route is unavailable.
 - Default mode is `EXECUTION_MODE=dry-run`, so the workflow can be tested without submitting transactions.
-- Live execution remains gated until Uniswap/KeeperHub adapters and executor custody are reviewed.
+- Browser-signed live swap flow should use `/execution/swap` to build Uniswap Trading API calldata; server-side custody remains gated until reviewed.
+- Keep root `FEEDBACK.md` updated with Uniswap Trading API findings, especially Base Sepolia support gaps.
 
 ## ETHSkills for A3
 

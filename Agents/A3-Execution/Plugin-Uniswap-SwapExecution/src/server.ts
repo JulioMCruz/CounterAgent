@@ -1,14 +1,14 @@
 import cors from '@fastify/cors';
 import Fastify from 'fastify';
 import { createHash, randomUUID } from 'node:crypto';
-import { isAddress, type Address } from 'viem';
+import { isAddress, parseUnits, type Address } from 'viem';
 import { z } from 'zod';
-import { UniswapTradingApiClient, type StablecoinSymbol, type TokenConfig } from './uniswap.js';
+import { UniswapApiError, UniswapTradingApiClient, type StablecoinSymbol, type TokenConfig } from './uniswap.js';
 
 const tokenSchema = z.enum(['USDC', 'EURC', 'USDT']);
 const txHashPattern = /^0x[a-fA-F0-9]{64}$/;
 
-const tokenConfigs: Record<StablecoinSymbol, TokenConfig> = {
+const baseMainnetTokens: Record<StablecoinSymbol, TokenConfig> = {
   USDC: { symbol: 'USDC', address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', decimals: 6 },
   EURC: { symbol: 'EURC', address: '0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42', decimals: 6 },
   USDT: { symbol: 'USDT', address: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2', decimals: 6 }
@@ -34,18 +34,25 @@ const executeSchema = quoteSchema.extend({
   idempotencyKey: z.string().min(1).max(160).optional()
 });
 
+const swapBuildSchema = z.object({
+  quote: z.unknown(),
+  permitData: z.unknown().optional(),
+  signature: z.string().regex(/^0x[a-fA-F0-9]*$/).optional()
+});
+
 const port = Number(process.env.PORT ?? 8791);
 const corsOrigins = (process.env.CORS_ORIGIN ?? 'https://counteragent.netlify.app')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
 const executionMode = (process.env.EXECUTION_MODE ?? 'dry-run').toLowerCase();
+const quoteMode = (process.env.UNISWAP_QUOTE_MODE ?? 'api-first').toLowerCase();
 const uniswapApiUrl = process.env.UNISWAP_API_URL ?? 'https://trade-api.gateway.uniswap.org/v1';
 const uniswapApiKey = process.env.UNISWAP_API_KEY;
-const uniswapApiKeyConfigured = Boolean(uniswapApiKey);
-const chainId = Number(process.env.CHAIN_ID ?? 8453);
+const uniswapApiKeyConfigured = Boolean(uniswapApiKey && !uniswapApiKey.includes('<'));
+const chainId = Number(process.env.CHAIN_ID ?? 84532);
 const keeperHubConfigured = Boolean(process.env.KEEPERHUB_API_URL && process.env.KEEPERHUB_API_KEY);
-const executorConfigured = Boolean(process.env.EXECUTOR_PRIVATE_KEY);
+const executorConfigured = Boolean(process.env.EXECUTOR_PRIVATE_KEY && !process.env.EXECUTOR_PRIVATE_KEY.includes('<'));
 
 const uniswap = new UniswapTradingApiClient({
   baseUrl: uniswapApiUrl,
@@ -56,9 +63,35 @@ const uniswap = new UniswapTradingApiClient({
 
 const app = Fastify({ logger: true });
 
+type QuoteSource = 'uniswap-trading-api' | 'counteragent-oracle-fallback' | 'uniswap-api-unavailable-fallback';
+
+type CounterAgentQuote = {
+  quoteId: string;
+  provider: QuoteSource;
+  route: string[];
+  tokenIn: Address;
+  tokenOut: Address;
+  amountIn: string;
+  amountInRaw: string;
+  estimatedAmountOut: string;
+  estimatedAmountOutRaw: string;
+  rate: number;
+  baselineRate: number;
+  feeBps: number;
+  priceImpactBps: number;
+  slippageBps: number;
+  executable: boolean;
+  dryRun: boolean;
+  fallbackReason?: string;
+  apiAttempted: boolean;
+  apiStatus?: number;
+  apiError?: string;
+  rawQuote?: unknown;
+};
+
 type RecentSwap = {
   agent: 'A3';
-  type: 'quote' | 'execution';
+  type: 'quote' | 'execution' | 'swap-build';
   workflowId?: string;
   merchant: string;
   fromToken: string;
@@ -69,6 +102,8 @@ type RecentSwap = {
   quoteId?: string;
   txHash?: string | null;
   estimatedAmountOut?: string;
+  provider?: QuoteSource | 'uniswap-trading-api';
+  fallbackReason?: string;
   timestamp: string;
 };
 
@@ -88,13 +123,14 @@ await app.register(cors, {
   methods: ['POST', 'GET', 'OPTIONS']
 });
 
-function estimateRate(fromToken: string, toToken: string, dryRunRate?: number) {
-  if (dryRunRate) return dryRunRate;
-  if (fromToken === toToken) return 1;
-  if (fromToken === 'EURC' && toToken === 'USDC') return 1.0812;
-  if (fromToken === 'USDT' && toToken === 'USDC') return 1.0003;
-  if (fromToken === 'USDC' && toToken === 'EURC') return 0.9249;
-  return 1;
+function envAddress(name: string) {
+  const value = process.env[name];
+  return value && isAddress(value) ? (value as Address) : undefined;
+}
+
+function tokenConfig(symbol: StablecoinSymbol): TokenConfig {
+  const override = envAddress(`${symbol}_TOKEN_ADDRESS`) ?? envAddress(`${symbol}_TOKEN_ADDRESS_${chainId}`);
+  return { ...baseMainnetTokens[symbol], address: override ?? baseMainnetTokens[symbol].address };
 }
 
 function amountToNumber(amount: string) {
@@ -102,54 +138,86 @@ function amountToNumber(amount: string) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
-function buildDryRunQuote(input: z.infer<typeof quoteSchema>) {
-  const rate = estimateRate(input.fromToken, input.toToken, input.dryRunRate);
+function fallbackRate(input: z.infer<typeof quoteSchema>) {
+  if (input.fromToken === input.toToken) return 1;
+  return input.dryRunRate ?? input.baselineRate ?? 1;
+}
+
+function buildFallbackQuote(input: z.infer<typeof quoteSchema>, details?: { reason?: string; apiAttempted?: boolean; apiStatus?: number; apiError?: string }): CounterAgentQuote {
+  const rate = fallbackRate(input);
   const amountIn = amountToNumber(input.amount);
-  const feeBps = input.fromToken === input.toToken ? 0 : 5;
-  const priceImpactBps = input.fromToken === input.toToken ? 0 : 3;
+  const feeBps = input.fromToken === input.toToken ? 0 : Number(process.env.FALLBACK_FEE_BPS ?? 5);
+  const priceImpactBps = input.fromToken === input.toToken ? 0 : Number(process.env.FALLBACK_PRICE_IMPACT_BPS ?? 0);
   const amountOut = amountIn > 0 ? (amountIn * rate * (10_000 - feeBps - priceImpactBps)) / 10_000 : 0;
+  const fromToken = tokenConfig(input.fromToken);
+  const toToken = tokenConfig(input.toToken);
+  const amountInRaw = parseUnits(input.amount.replace(/,/g, ''), fromToken.decimals).toString();
+  const estimatedAmountOutRaw = parseUnits(amountOut.toFixed(toToken.decimals), toToken.decimals).toString();
+  const fallbackReason = details?.reason ?? (input.dryRunRate || input.baselineRate ? 'oracle_or_user_rate_fallback' : 'no_market_rate_available');
   const quoteId = createHash('sha256')
-    .update(JSON.stringify({ ...input, rate, feeBps, priceImpactBps }))
+    .update(JSON.stringify({ ...input, chainId, rate, feeBps, priceImpactBps, fallbackReason }))
     .digest('hex')
     .slice(0, 24);
 
   return {
     quoteId,
-    provider: 'uniswap-dry-run',
+    provider: details?.apiAttempted ? 'uniswap-api-unavailable-fallback' : 'counteragent-oracle-fallback',
     route: [input.fromToken, input.toToken],
-    tokenIn: tokenConfigs[input.fromToken].address,
-    tokenOut: tokenConfigs[input.toToken].address,
+    tokenIn: fromToken.address,
+    tokenOut: toToken.address,
     amountIn: input.amount,
-    estimatedAmountOut: amountOut ? amountOut.toFixed(6) : '0',
+    amountInRaw,
+    estimatedAmountOut: amountOut ? amountOut.toFixed(toToken.decimals) : '0',
+    estimatedAmountOutRaw,
     rate,
     baselineRate: input.baselineRate ?? 1,
     feeBps,
     priceImpactBps,
     slippageBps: input.slippageBps,
-    executable: executionMode !== 'dry-run' && executorConfigured,
-    dryRun: true
+    executable: false,
+    dryRun: true,
+    fallbackReason,
+    apiAttempted: Boolean(details?.apiAttempted),
+    apiStatus: details?.apiStatus,
+    apiError: details?.apiError
   };
 }
 
-async function buildQuote(input: z.infer<typeof quoteSchema>) {
-  // The plugin defaults to deterministic dry-run quotes so demos never move funds.
-  // In live-quote mode it calls the Uniswap Trading API, then still gates transaction broadcast separately.
-  if (executionMode === 'dry-run' || !uniswapApiKeyConfigured) {
-    return buildDryRunQuote(input);
+async function buildQuote(input: z.infer<typeof quoteSchema>): Promise<CounterAgentQuote> {
+  if (!uniswapApiKeyConfigured || quoteMode === 'fallback-only') {
+    return buildFallbackQuote(input, {
+      reason: uniswapApiKeyConfigured ? 'fallback_only_mode' : 'uniswap_api_key_not_configured',
+      apiAttempted: false
+    });
   }
 
   try {
-    return await uniswap.quote({
+    const apiQuote = await uniswap.quote({
       merchantWallet: input.merchantWallet as Address,
       chainId,
-      fromToken: tokenConfigs[input.fromToken],
-      toToken: tokenConfigs[input.toToken],
+      fromToken: tokenConfig(input.fromToken),
+      toToken: tokenConfig(input.toToken),
       amount: input.amount,
       slippageBps: input.slippageBps
     });
+
+    return {
+      ...apiQuote,
+      provider: 'uniswap-trading-api',
+      baselineRate: input.baselineRate ?? 1,
+      executable: executionMode !== 'dry-run' && executorConfigured,
+      dryRun: executionMode === 'dry-run',
+      apiAttempted: true
+    };
   } catch (error) {
-    app.log.warn({ error }, 'Uniswap Trading API quote failed; falling back to dry-run quote');
-    return { ...buildDryRunQuote(input), provider: 'uniswap-dry-run-fallback' };
+    const apiError = error instanceof UniswapApiError ? error : undefined;
+    app.log.warn({ error, chainId }, 'Uniswap Trading API quote failed; falling back to CounterAgent oracle quote');
+    return buildFallbackQuote(input, {
+      reason: apiError?.status === 404 ? `uniswap_trading_api_unsupported_or_no_route_chain_${chainId}` : 'uniswap_trading_api_quote_failed',
+      apiAttempted: true,
+      apiStatus: apiError?.status,
+      apiError: error instanceof Error ? error.message : 'uniswap_unknown_error'
+    });
   }
 }
 
@@ -171,8 +239,10 @@ app.get('/healthz', async () => ({
   status: 'live',
   role: 'execution',
   executionMode,
+  quoteMode,
   integrations: {
     uniswapApiConfigured: Boolean(uniswapApiUrl && uniswapApiKeyConfigured),
+    uniswapApiUrl,
     chainId,
     keeperHubConfigured,
     executorConfigured
@@ -196,12 +266,49 @@ app.post('/execution/quote', async (request, reply) => {
     toToken: parsed.data.toToken,
     amount: parsed.data.amount,
     rate: quote.rate,
-    status: 'dryRun' in quote && quote.dryRun ? 'dry-run-quote' : 'quoted',
+    status: quote.provider === 'uniswap-trading-api' ? 'quoted' : 'fallback-quote',
     quoteId: quote.quoteId,
     estimatedAmountOut: quote.estimatedAmountOut,
+    provider: quote.provider,
+    fallbackReason: quote.fallbackReason,
     timestamp: new Date().toISOString()
   });
   return reply.send({ ok: true, workflowId: parsed.data.workflowId, quote });
+});
+
+app.post('/execution/swap', async (request, reply) => {
+  const parsed = swapBuildSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    return reply.code(400).send({ ok: false, error: 'invalid_request', details: parsed.error.flatten() });
+  }
+
+  if (!uniswapApiKeyConfigured) {
+    return reply.code(503).send({ ok: false, error: 'uniswap_api_key_not_configured' });
+  }
+
+  try {
+    const swap = await uniswap.buildSwap({
+      quote: parsed.data.quote,
+      permitData: parsed.data.permitData,
+      signature: parsed.data.signature as `0x${string}` | undefined
+    });
+
+    return reply.send({
+      ok: true,
+      swap,
+      message: 'Transaction data returned by Uniswap Trading API. The browser/wallet should sign and send it.'
+    });
+  } catch (error) {
+    const apiError = error instanceof UniswapApiError ? error : undefined;
+    app.log.warn({ error }, 'Uniswap Trading API swap build failed');
+    return reply.code(apiError?.status && apiError.status < 500 ? 400 : 502).send({
+      ok: false,
+      error: 'uniswap_swap_build_failed',
+      status: apiError?.status,
+      message: error instanceof Error ? error.message : 'uniswap_unknown_error'
+    });
+  }
 });
 
 app.post('/execution/execute', async (request, reply) => {
@@ -235,7 +342,7 @@ app.post('/execution/execute', async (request, reply) => {
 
   const quote = await buildQuote(parsed.data);
 
-  if (executionMode === 'dry-run') {
+  if (executionMode === 'dry-run' || quote.provider !== 'uniswap-trading-api') {
     const executionId = parsed.data.idempotencyKey ?? randomUUID();
     pushRecentSwap({
       agent: 'A3',
@@ -246,20 +353,24 @@ app.post('/execution/execute', async (request, reply) => {
       toToken: parsed.data.toToken,
       amount: parsed.data.amount,
       rate: quote.rate,
-      status: 'dry-run',
+      status: quote.provider === 'uniswap-trading-api' ? 'dry-run' : 'fallback-dry-run',
       quoteId: quote.quoteId,
       txHash: null,
       estimatedAmountOut: quote.estimatedAmountOut,
+      provider: quote.provider,
+      fallbackReason: quote.fallbackReason,
       timestamp: new Date().toISOString()
     });
     return reply.send({
       ok: true,
       workflowId: parsed.data.workflowId,
-      status: 'dry-run',
+      status: quote.provider === 'uniswap-trading-api' ? 'dry-run' : 'fallback-dry-run',
       executionId,
       quote,
       transactionHash: null,
-      message: 'Dry-run execution only; no transaction was submitted.'
+      message: quote.provider === 'uniswap-trading-api'
+        ? 'Uniswap Trading API quote obtained; dry-run mode did not submit a transaction.'
+        : 'Uniswap Trading API was unavailable for this route/chain; fallback quote used and no transaction was submitted.'
     });
   }
 
@@ -269,8 +380,8 @@ app.post('/execution/execute', async (request, reply) => {
 
   return reply.code(501).send({
     ok: false,
-    error: 'live_execution_not_enabled',
-    message: 'Live Uniswap/KeeperHub execution is intentionally gated until executor credentials and adapter are reviewed.'
+    error: 'server_side_live_execution_not_enabled',
+    message: 'Use /execution/swap to build Uniswap Trading API transaction calldata for browser wallet signing; server-side custody remains intentionally disabled.'
   });
 });
 
