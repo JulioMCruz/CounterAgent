@@ -2,11 +2,11 @@
 
 import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { useAccount } from "wagmi"
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis } from "recharts"
 
 import { AppHeader } from "@/components/app-header"
 import { Card, CardContent } from "@/components/ui/card"
+import { useConnectedWalletAddress } from "@/hooks/use-connected-wallet-address"
 import { fetchDashboardState, type DashboardState } from "@/lib/a0"
 
 const periods = ["7D", "1M", "3M", "All"] as const
@@ -45,7 +45,7 @@ function tradingPairs(dashboard?: DashboardState) {
 }
 
 export default function AnalyticsPage() {
-  const { address } = useAccount()
+  const { address } = useConnectedWalletAddress()
   const [period, setPeriod] = useState<string>("1M")
   const dashboardQuery = useQuery({
     queryKey: ["dashboard-state", address],

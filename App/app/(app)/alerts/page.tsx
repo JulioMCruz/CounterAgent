@@ -3,10 +3,9 @@
 import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { CheckCircle2, Pause, AlertTriangle, MessageCircle, ArrowRightLeft, FileText } from "lucide-react"
-import { useAccount } from "wagmi"
-
 import { AppHeader } from "@/components/app-header"
 import { Card, CardContent } from "@/components/ui/card"
+import { useConnectedWalletAddress } from "@/hooks/use-connected-wallet-address"
 import { fetchDashboardState, type DashboardState } from "@/lib/a0"
 
 const filters = ["All", "Swaps", "Holds", "Anomalies"] as const
@@ -99,7 +98,7 @@ function matchesFilter(alert: AlertItem, filter: string) {
 }
 
 export default function AlertsPage() {
-  const { address } = useAccount()
+  const { address } = useConnectedWalletAddress()
   const [filter, setFilter] = useState<string>("All")
   const dashboardQuery = useQuery({
     queryKey: ["dashboard-state", address],

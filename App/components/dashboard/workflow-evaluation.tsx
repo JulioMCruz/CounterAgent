@@ -2,8 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { ArrowRightLeft, CheckCircle2, Database, Loader2, Play, ShieldCheck } from "lucide-react"
-import { useAccount } from "wagmi"
-
+import { useConnectedWalletAddress } from "@/hooks/use-connected-wallet-address"
 import { evaluateWorkflow, type WorkflowEvaluateResponse } from "@/lib/a0"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -29,7 +28,7 @@ function shortHash(value?: string | null) {
 }
 
 export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }) {
-  const { address, chainId } = useAccount()
+  const { address, chainId } = useConnectedWalletAddress()
   const [result, setResult] = useState<WorkflowEvaluateResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)

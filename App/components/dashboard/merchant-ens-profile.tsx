@@ -1,9 +1,9 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { useAccount } from "wagmi"
 import { Card } from "@/components/ui/card"
 import { ensNameFromMerchant, resolveSession, shortenAddress, type ResolvedMerchantConfig } from "@/lib/a0"
+import { useConnectedWalletAddress } from "@/hooks/use-connected-wallet-address"
 import { activeChain } from "@/lib/registry"
 
 const imageFromRecords = (records: Record<string, string> | undefined, keys: string[]) => {
@@ -26,7 +26,7 @@ const initialsFor = (value: string) => {
 }
 
 export function MerchantEnsProfile() {
-  const { address } = useAccount()
+  const { address } = useConnectedWalletAddress()
   const [merchant, setMerchant] = useState<ResolvedMerchantConfig | undefined>()
   const [cachedEnsRecords, setCachedEnsRecords] = useState<Record<string, string>>({})
 

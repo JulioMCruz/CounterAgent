@@ -1,17 +1,16 @@
 "use client"
 
 import { useQuery } from "@tanstack/react-query"
-import { useAccount } from "wagmi"
-
 import { AgentActivity } from "@/components/dashboard/agent-activity"
 import { Holdings } from "@/components/dashboard/holdings"
 import { MonthlySavings } from "@/components/dashboard/monthly-savings"
 import { TreasuryBalance } from "@/components/dashboard/treasury-balance"
 import { WorkflowEvaluation } from "@/components/dashboard/workflow-evaluation"
+import { useConnectedWalletAddress } from "@/hooks/use-connected-wallet-address"
 import { fetchDashboardState } from "@/lib/a0"
 
 export function LiveDashboard() {
-  const { address } = useAccount()
+  const { address } = useConnectedWalletAddress()
   const dashboardQuery = useQuery({
     queryKey: ["dashboard-state", address],
     queryFn: () => fetchDashboardState(address!),
