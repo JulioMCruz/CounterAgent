@@ -18,6 +18,7 @@ import {
   merchantRegistryAddress,
   merchantRegistryConfigured,
 } from "@/lib/registry"
+import { dynamicConfigured } from "@/lib/dynamic-config"
 
 const steps = ["Connect", "Configure", "Active"]
 const riskLevels = ["Conservative", "Moderate", "Aggressive"] as const
@@ -244,7 +245,13 @@ export default function OnboardingPage() {
                   Wallet connection starts here, after an explicit click — never from the landing page.
                 </p>
               </div>
-              <DynamicWidget />
+              {dynamicConfigured ? (
+                <DynamicWidget />
+              ) : (
+                <p className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
+                  Dynamic environment is not configured in this build. Rebuild with NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID.
+                </p>
+              )}
             </CardContent>
           </Card>
         )}

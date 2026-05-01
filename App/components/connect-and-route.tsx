@@ -7,6 +7,7 @@ import { useAccount, useChainId, useReadContract, useSwitchChain } from "wagmi"
 import { resolveSession } from "@/lib/a0"
 import { merchantRegistryAbi } from "@/lib/merchant-registry-abi"
 import { activeChain, activeChainSwitchParams, merchantRegistryAddress, merchantRegistryConfigured } from "@/lib/registry"
+import { dynamicConfigured } from "@/lib/dynamic-config"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -17,9 +18,29 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 
-const dynamicConfigured = Boolean(process.env.NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID)
-
 export function ConnectAndRoute() {
+  if (!dynamicConfigured) return <DynamicNotConfigured />
+  return <DynamicConnectAndRoute />
+}
+
+function DynamicNotConfigured() {
+  return (
+    <div className="flex flex-col items-start gap-2">
+      <button
+        className="rounded-full bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground opacity-70"
+        disabled
+        type="button"
+      >
+        Wallet setup pending
+      </button>
+      <p className="max-w-sm text-xs text-header-foreground/60">
+        Dynamic environment is not configured yet.
+      </p>
+    </div>
+  )
+}
+
+function DynamicConnectAndRoute() {
   const router = useRouter()
   const { address } = useAccount()
   const { primaryWallet, sdkHasLoaded, setShowAuthFlow } = useDynamicContext()
@@ -184,23 +205,6 @@ export function ConnectAndRoute() {
     if (isLoading || registered === undefined) return
     router.push(registered ? "/dashboard" : "/onboarding")
   }, [address, registered, isLoading, routeStatus, router])
-
-  if (!dynamicConfigured) {
-    return (
-      <div className="flex flex-col items-start gap-2">
-        <button
-          className="rounded-full bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground opacity-70"
-          disabled
-          type="button"
-        >
-          Wallet setup pending
-        </button>
-        <p className="max-w-sm text-xs text-header-foreground/60">
-          Dynamic environment is not configured yet.
-        </p>
-      </div>
-    )
-  }
 
   return (
     <div className="flex flex-col items-start gap-2">

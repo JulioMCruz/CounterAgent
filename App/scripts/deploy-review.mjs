@@ -17,6 +17,25 @@ function sh(command) {
   return execFileSync('sh', ['-c', command], { encoding: 'utf8' }).trim()
 }
 
+function loadNetlifyBuildEnv() {
+  const authArg = process.env.NETLIFY_AUTH_TOKEN ? ` --auth '${process.env.NETLIFY_AUTH_TOKEN.replace(/'/g, `'\\''`)}'` : ''
+  try {
+    const output = sh(`netlify env:list --context production --plain${authArg}`)
+    const env = {}
+    for (const line of output.split('\n')) {
+      const index = line.indexOf('=')
+      if (index <= 0) continue
+      const key = line.slice(0, index)
+      const value = line.slice(index + 1)
+      if (key.startsWith('NEXT_PUBLIC_')) env[key] = value
+    }
+    return env
+  } catch {
+    console.warn('Warning: could not load Netlify production env for local Next build; using current process env only.')
+    return {}
+  }
+}
+
 function copyRoute(src, dst) {
   if (!existsSync(src)) return
   mkdirSync(dst.split('/').slice(0, -1).join('/'), { recursive: true })
@@ -28,7 +47,8 @@ rmSync('.next', { recursive: true, force: true })
 rmSync(outDir, { recursive: true, force: true })
 
 run('npm', ['run', 'lint'])
-run('npm', ['run', 'build'], { env: { ...process.env, BUILD_ID: stamp } })
+const netlifyBuildEnv = loadNetlifyBuildEnv()
+run('npm', ['run', 'build'], { env: { ...process.env, ...netlifyBuildEnv, BUILD_ID: stamp } })
 
 mkdirSync(join(outDir, '_next'), { recursive: true })
 cpSync('.next/static', join(outDir, '_next/static'), { recursive: true })
@@ -44,7 +64,11 @@ copyRoute(join(appDir, 'alerts.html'), join(outDir, 'alerts/index.html'))
 copyRoute(join(appDir, 'onboarding.html'), join(outDir, 'onboarding/index.html'))
 copyRoute(join(appDir, '_not-found.html'), join(outDir, '404.html'))
 
-const a0ProxyUrl = process.env.ORCHESTRATOR_URL || process.env.A0_URL || process.env.NEXT_PUBLIC_ORCHESTRATOR_URL || process.env.NEXT_PUBLIC_A0_URL
+const deployEnv = { ...process.env, ...netlifyBuildEnv }
+const a0ProxyUrl = deployEnv.ORCHESTRATOR_URL || deployEnv.A0_URL || deployEnv.NEXT_PUBLIC_ORCHESTRATOR_URL || deployEnv.NEXT_PUBLIC_A0_URL
+if (!a0ProxyUrl) {
+  console.warn('Warning: A0 proxy URL is not configured; /api/a0/* will not be redirected.')
+}
 writeFileSync(join(outDir, '_redirects'), [
   ...(a0ProxyUrl ? [`/api/a0/* ${a0ProxyUrl.replace(/\/$/, '')}/:splat 200`] : []),
   '/settings /settings/index.html 200',
@@ -53,6 +77,14 @@ writeFileSync(join(outDir, '_redirects'), [
   '/alerts /alerts/index.html 200',
   '/onboarding /onboarding/index.html 200',
   '/* /index.html 200',
+  '',
+].join('\n'))
+
+writeFileSync(join(outDir, '_headers'), [
+  '/*',
+  '  Cache-Control: no-cache, no-store, must-revalidate',
+  '/_next/static/*',
+  '  Cache-Control: public, max-age=31536000, immutable',
   '',
 ].join('\n'))
 

@@ -63,7 +63,7 @@ export default function LandingPage() {
               <FeatureCard
                 icon={<ArrowRightLeft className="h-5 w-5 text-primary" />}
                 title="Auto-Convert"
-                description="FX-triggered swaps via Uniswap v3"
+                description="FX-triggered swaps via Uniswap v4"
               />
               <FeatureCard
                 icon={<FileText className="h-5 w-5 text-warning" />}

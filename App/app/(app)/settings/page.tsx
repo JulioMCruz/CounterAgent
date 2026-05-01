@@ -957,7 +957,7 @@ export default function SettingsPage() {
               <p className="mb-2 text-xs font-bold uppercase tracking-widest text-muted-foreground">Integrations</p>
               <Card>
                 <CardContent className="flex flex-col divide-y divide-border px-0 py-0">
-                  {["Uniswap v3", "ENS Records", "OG Protocol"].map((name) => (
+                  {["Uniswap v4", "ENS Records", "OG Protocol"].map((name) => (
                     <div key={name} className="flex items-center gap-3 px-4 py-3 lg:px-5">
                       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-secondary">
                         <Link2 className="h-4 w-4 text-muted-foreground" />
