@@ -202,6 +202,19 @@ export type WorkflowEvaluateResponse = {
   error?: string
 }
 
+export type DashboardMonitorEvent = {
+  agent: "A1"
+  type: "ens-config" | "merchant-lookup" | "wallet-watch" | "threshold-signal" | "provision"
+  merchant: string
+  ensName?: string
+  status: "loaded" | "not-found" | "watching" | "signal" | "provisioned" | "error"
+  fxThresholdBps?: string
+  riskTolerance?: string
+  preferredStablecoin?: string
+  summary: string
+  timestamp: string
+}
+
 export type DashboardDecision = {
   agent: "A2"
   workflowId?: string
@@ -251,6 +264,7 @@ export type DashboardReport = {
 export type DashboardState = {
   ok: true
   merchant: string
+  monitor: DashboardMonitorEvent[]
   decisions: DashboardDecision[]
   executions: DashboardExecution[]
   reports: DashboardReport[]
@@ -411,6 +425,7 @@ export async function fetchDashboardState(walletAddress: `0x${string}`) {
     return {
       ok: true,
       merchant: walletAddress,
+      monitor: [],
       decisions: [],
       executions: [],
       reports: [],

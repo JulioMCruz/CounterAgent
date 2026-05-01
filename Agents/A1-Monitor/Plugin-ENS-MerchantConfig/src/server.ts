@@ -123,6 +123,30 @@ type IpfsUploadResult = {
 
 const app = Fastify({ logger: true });
 
+type RecentMonitorEvent = {
+  agent: 'A1';
+  type: 'ens-config' | 'merchant-lookup' | 'wallet-watch' | 'threshold-signal' | 'provision';
+  merchant: string;
+  ensName?: string;
+  status: 'loaded' | 'not-found' | 'watching' | 'signal' | 'provisioned' | 'error';
+  fxThresholdBps?: string;
+  riskTolerance?: string;
+  preferredStablecoin?: string;
+  summary: string;
+  timestamp: string;
+};
+
+const recentMonitorEvents = new Map<string, RecentMonitorEvent[]>();
+const recentLimit = Number(process.env.RECENT_EVENT_LIMIT ?? 20);
+const merchantKey = (value: string) => value.toLowerCase();
+
+function pushRecentMonitorEvent(event: RecentMonitorEvent) {
+  const key = merchantKey(event.merchant);
+  const items = recentMonitorEvents.get(key) ?? [];
+  items.unshift(event);
+  recentMonitorEvents.set(key, items.slice(0, recentLimit));
+}
+
 await app.register(cors, {
   origin: corsOrigins,
   methods: ['POST', 'GET', 'OPTIONS']
@@ -276,6 +300,19 @@ const uploadDirectlyToPinata = async (buffer: Buffer, file: { mimetype: string; 
 
 app.get('/healthz', async () => ({ ok: true, status: 'live', role: 'ens-monitor' }));
 
+app.get('/monitor/recent', async (request, reply) => {
+  const merchant = typeof (request.query as { merchant?: unknown }).merchant === 'string'
+    ? (request.query as { merchant: string }).merchant
+    : '';
+
+  if (!isAddress(merchant)) {
+    return reply.code(400).send({ ok: false, error: 'invalid_merchant' });
+  }
+
+  const limit = Math.min(Number((request.query as { limit?: string }).limit ?? recentLimit), recentLimit);
+  return reply.send({ ok: true, merchant, monitor: (recentMonitorEvents.get(merchantKey(merchant)) ?? []).slice(0, limit) });
+});
+
 app.get('/ens/merchant/:wallet', async (request, reply) => {
   const { wallet } = request.params as { wallet: string };
 
@@ -302,6 +339,14 @@ app.get('/ens/merchant/:wallet', async (request, reply) => {
     })[0];
 
     if (!latest) {
+      pushRecentMonitorEvent({
+        agent: 'A1',
+        type: 'merchant-lookup',
+        merchant: wallet,
+        status: 'not-found',
+        summary: 'Monitor checked ENS merchant config; no CounterAgent subname found yet.',
+        timestamp: new Date().toISOString()
+      });
       return reply.code(404).send({ ok: false, error: 'ens_merchant_not_found', merchantWallet: wallet });
     }
 
@@ -335,6 +380,19 @@ app.get('/ens/merchant/:wallet', async (request, reply) => {
       });
       records = await readCounterAgentEnsRecords(resolver, node);
     }
+
+    pushRecentMonitorEvent({
+      agent: 'A1',
+      type: 'ens-config',
+      merchant: wallet,
+      ensName: args.name,
+      status: 'loaded',
+      fxThresholdBps: records['counteragent.fx_threshold_bps'] || args.fxThresholdBps.toString(),
+      riskTolerance: records['counteragent.risk_tolerance'] || args.riskTolerance,
+      preferredStablecoin: records['counteragent.preferred_stablecoin'] || args.preferredStablecoin,
+      summary: `Loaded ENS treasury config for ${args.name}.`,
+      timestamp: new Date().toISOString()
+    });
 
     return reply.send({
       ok: true,
@@ -474,6 +532,19 @@ app.post('/ens/provision', async (request, reply) => {
 
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
     const node = namehash(name);
+
+    pushRecentMonitorEvent({
+      agent: 'A1',
+      type: 'provision',
+      merchant: data.merchantWallet,
+      ensName: name,
+      status: 'provisioned',
+      fxThresholdBps: data.fxThresholdBps.toString(),
+      riskTolerance: data.riskTolerance,
+      preferredStablecoin: data.preferredStablecoin,
+      summary: `Provisioned ENS treasury config for ${name}.`,
+      timestamp: new Date().toISOString()
+    });
 
     return reply.send({
       ok: true,

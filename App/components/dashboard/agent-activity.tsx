@@ -1,11 +1,11 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ArrowRightLeft, FileText, Pause, ShieldCheck } from "lucide-react"
+import { ArrowRightLeft, Eye, FileText, Pause, ShieldCheck } from "lucide-react"
 
-import type { DashboardDecision, DashboardExecution, DashboardReport, DashboardState } from "@/lib/a0"
+import type { DashboardDecision, DashboardExecution, DashboardMonitorEvent, DashboardReport, DashboardState } from "@/lib/a0"
 
 type Activity = {
   id: string
-  agent: "A2" | "A3" | "A4"
+  agent: "A1" | "A2" | "A3" | "A4"
   timestamp: string
   label: string
   detail?: string
@@ -15,6 +15,7 @@ type Activity = {
 }
 
 const agentClass: Record<Activity["agent"], string> = {
+  A1: "bg-chart-3/10 text-chart-3",
   A2: "bg-warning/10 text-warning",
   A3: "bg-success/10 text-success",
   A4: "bg-primary/10 text-primary",
@@ -28,6 +29,19 @@ function relativeTime(value: string) {
   if (minutes < 60) return `${minutes}m ago`
   const hours = Math.round(minutes / 60)
   return `${hours}h ago`
+}
+
+function monitorActivity(item: DashboardMonitorEvent): Activity {
+  return {
+    id: `monitor-${item.type}-${item.timestamp}`,
+    agent: "A1",
+    timestamp: item.timestamp,
+    label: item.status === "loaded" ? `Monitor loaded ENS config${item.ensName ? ` for ${item.ensName}` : ""}` : item.summary,
+    detail: [item.fxThresholdBps ? `${item.fxThresholdBps} bps` : "", item.riskTolerance, item.preferredStablecoin].filter(Boolean).join(" · ") || item.status,
+    icon: Eye,
+    iconColor: "text-chart-3",
+    iconBg: "bg-chart-3/10",
+  }
 }
 
 function decisionActivity(item: DashboardDecision): Activity {
@@ -73,6 +87,7 @@ function reportActivity(item: DashboardReport): Activity {
 
 export function AgentActivity({ dashboard, isLoading }: { dashboard?: DashboardState; isLoading?: boolean }) {
   const activities = [
+    ...(dashboard?.monitor ?? []).map(monitorActivity),
     ...(dashboard?.decisions ?? []).map(decisionActivity),
     ...(dashboard?.executions ?? []).map(executionActivity),
     ...(dashboard?.reports ?? []).map(reportActivity),
@@ -90,7 +105,7 @@ export function AgentActivity({ dashboard, isLoading }: { dashboard?: DashboardS
           <p className="text-sm text-muted-foreground">Loading live agent activity…</p>
         ) : activities.length === 0 ? (
           <p className="rounded-lg border border-dashed border-muted-foreground/30 p-3 text-sm text-muted-foreground">
-            No activity yet. Run a dry-run and A2/A3/A4 events should appear here within a few seconds.
+            No activity yet. A1 monitor events appear after ENS/session lookup; A2/A3/A4 events appear after a dry-run.
           </p>
         ) : (
           activities.map((a) => (

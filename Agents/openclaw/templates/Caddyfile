@@ -10,30 +10,44 @@
 
 counteragent.perkos.xyz {
   import counteragent_headers
-  reverse_proxy a0-orchestrator:3000
+  @orchestrator_api path /session/* /onboarding/* /workflow/* /ens/* /dashboard/*
+  handle @orchestrator_api {
+    reverse_proxy orchestrator-plugin:8787
+  }
+
+  handle {
+    reverse_proxy a0-orchestrator:18789
+  }
 }
 
 orchestrator.counteragent.perkos.xyz {
   import counteragent_headers
-  reverse_proxy a0-orchestrator:3000
+  @orchestrator_api path /session/* /onboarding/* /workflow/* /ens/* /dashboard/*
+  handle @orchestrator_api {
+    reverse_proxy orchestrator-plugin:8787
+  }
+
+  handle {
+    reverse_proxy a0-orchestrator:18789
+  }
 }
 
 monitor.counteragent.perkos.xyz {
   import counteragent_headers
-  reverse_proxy a1-monitor:3000
+  reverse_proxy ens-merchant-config-plugin:8788
 }
 
 decision.counteragent.perkos.xyz {
   import counteragent_headers
-  reverse_proxy a2-decision:3000
+  reverse_proxy decision-scoring-plugin:8790
 }
 
 execution.counteragent.perkos.xyz {
   import counteragent_headers
-  reverse_proxy a3-execution:3000
+  reverse_proxy uniswap-swap-plugin:8791
 }
 
 reporting.counteragent.perkos.xyz {
   import counteragent_headers
-  reverse_proxy a4-reporting:3000
+  reverse_proxy reporting-plugin:8789
 }

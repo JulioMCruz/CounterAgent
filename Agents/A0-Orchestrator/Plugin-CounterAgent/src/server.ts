@@ -274,6 +274,19 @@ app.get('/healthz', async () => ({
   }
 }));
 
+type DashboardMonitorEvent = {
+  agent: 'A1';
+  type: 'ens-config' | 'merchant-lookup' | 'wallet-watch' | 'threshold-signal' | 'provision';
+  merchant: string;
+  ensName?: string;
+  status: 'loaded' | 'not-found' | 'watching' | 'signal' | 'provisioned' | 'error';
+  fxThresholdBps?: string;
+  riskTolerance?: string;
+  preferredStablecoin?: string;
+  summary: string;
+  timestamp: string;
+};
+
 type DashboardDecision = {
   agent: 'A2';
   workflowId?: string;
@@ -858,7 +871,10 @@ app.get('/dashboard/state', async (request, reply) => {
   const merchantParam = encodeURIComponent(merchant);
   const unavailable: string[] = [];
 
-  const [decisionResult, executionResult, reportResult] = await Promise.allSettled([
+  const [monitorResult, decisionResult, executionResult, reportResult] = await Promise.allSettled([
+    monitorAgentUrl
+      ? getJson<{ monitor?: DashboardMonitorEvent[] }>(`${monitorAgentUrl.replace(/\/$/, '')}/monitor/recent?merchant=${merchantParam}&limit=${limit}`)
+      : Promise.resolve({ monitor: [] as DashboardMonitorEvent[] }),
     decisionAgentUrl
       ? getJson<{ decisions?: DashboardDecision[] }>(`${decisionAgentUrl.replace(/\/$/, '')}/decision/recent?merchant=${merchantParam}&limit=${limit}`)
       : Promise.resolve({ decisions: [] as DashboardDecision[] }),
@@ -870,10 +886,12 @@ app.get('/dashboard/state', async (request, reply) => {
       : Promise.resolve({ reports: [] as DashboardReport[] })
   ]);
 
+  const monitor = monitorResult.status === 'fulfilled' ? monitorResult.value.monitor ?? [] : [];
   const decisions = decisionResult.status === 'fulfilled' ? decisionResult.value.decisions ?? [] : [];
   const executions = executionResult.status === 'fulfilled' ? executionResult.value.swaps ?? [] : [];
   const reports = reportResult.status === 'fulfilled' ? reportResult.value.reports ?? [] : [];
 
+  if (monitorResult.status === 'rejected') unavailable.push('A1');
   if (decisionResult.status === 'rejected') unavailable.push('A2');
   if (executionResult.status === 'rejected') unavailable.push('A3');
   if (reportResult.status === 'rejected') unavailable.push('A4');
@@ -891,6 +909,7 @@ app.get('/dashboard/state', async (request, reply) => {
   return reply.send({
     ok: true,
     merchant,
+    monitor,
     decisions,
     executions,
     reports,
