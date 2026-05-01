@@ -404,10 +404,20 @@ export async function evaluateWorkflow(input: WorkflowEvaluateRequest) {
 export async function fetchDashboardState(walletAddress: `0x${string}`) {
   const params = new URLSearchParams({ merchant: walletAddress })
   const res = await fetch(`${orchestratorUrl}/dashboard/state?${params.toString()}`)
+  const contentType = res.headers.get("content-type") || ""
+  const text = await res.text()
 
-  if (!res.ok) {
-    throw new Error(`Orchestrator dashboard state failed: ${res.status}`)
+  if (!res.ok || !contentType.includes("application/json")) {
+    return {
+      ok: true,
+      merchant: walletAddress,
+      decisions: [],
+      executions: [],
+      reports: [],
+      kpis: { totalSavedUsd: "0.00", swapsExecuted: 0, volumeUsd: "0.00" },
+      unavailable: ["A0-dashboard-state"],
+    } satisfies DashboardState
   }
 
-  return res.json() as Promise<DashboardState>
+  return JSON.parse(text) as DashboardState
 }
