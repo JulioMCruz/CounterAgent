@@ -1,6 +1,6 @@
 # CounterAgent 🦩
 
-> **Autonomous stablecoin treasury management for merchants on Base. No backend. No manual intervention. No value lost to bad FX timing.**
+> **Autonomous stablecoin treasury management for merchants on Base — within guardrails you control. No backend. No rogue behaviour. No value lost to bad FX timing.**
 
 [![ETHGlobal](https://img.shields.io/badge/ETHGlobal-Open%20Agents%202026-blue)](https://ethglobal.com/events/openagents)
 [![Base](https://img.shields.io/badge/Network-Base-0052FF)](https://base.org)
@@ -22,12 +22,21 @@ Merchants accepting crypto payments leak value every day to poor FX timing:
 
 ## The Solution
 
-CounterAgent is a 5-agent autonomous system that watches your wallet, scores live FX rates, and converts stablecoins at the optimal moment via Uniswap v4 / Uniswap Trading API — with KeeperHub guaranteeing execution and **x402 micropayments settling every inter-agent step on-chain**. You get a Telegram alert when it happens.
+CounterAgent is a 5-agent autonomous system that watches your wallet, scores live FX rates, and converts stablecoins at the optimal moment via Uniswap v3 — with KeeperHub guaranteeing execution and **x402 micropayments settling every inter-agent step on-chain**. Agents communicate over a **Gensyn AXL encrypted P2P mesh** — no central server, no single point of failure. You get a Telegram alert when it happens.
 
-1. **Agent 0 (Orchestrator)** — coordinates all agents, owns failure and recovery decisions
+Agents are distributed across **4 AXL nodes**, each with a distinct role:
+
+| AXL Node | Role | Responsibility |
+|---|---|---|
+| **Coordinator** | Agent 0 — Orchestrator | Pipeline control, failure handling, recovery |
+| **Monitor** | Agent 1 — Monitor | ENS config reads, wallet + pool rate polling |
+| **Analyst** | Agent 2 — Decision | FX scoring, HOLD / CONVERT determination |
+| **Action** | Agent 3 + 4 — Execution & Reporting | Swap execution, 0G audit log, Telegram alert |
+
+1. **Agent 0 (Orchestrator)** — coordinates all agents via AXL, owns failure and recovery decisions
 2. **Agent 1 (Monitor)** — reads ENS config, watches wallet balances and Uniswap pool rates in real time
 3. **Agent 2 (Decision)** — runs hold/convert scoring logic weighted by FX spread, fee, and risk tolerance
-4. **Agent 3 (Execution)** — submits swaps via Uniswap v4 / Uniswap Trading API on Base; KeeperHub MCP handles gas, MEV protection, retries; x402 handles inter-agent payment settlement
+4. **Agent 3 (Execution)** — submits swaps via Uniswap v3 on Base; KeeperHub MCP handles gas, MEV protection, retries; x402 handles inter-agent payment settlement
 5. **Agent 4 (Reporting)** — logs every decision to 0G Storage; sends Telegram alert to merchant
 
 ---
@@ -40,21 +49,29 @@ CounterAgent is a 5-agent autonomous system that watches your wallet, scores liv
 flowchart TD
     PAY["💳 Incoming Payment\nUSDC · EURC · USDT on Base"]
 
-    subgraph PIPELINE ["CounterAgent Pipeline"]
-        A0["🧠 AGENT 0 — Orchestrator\ncoordinates pipeline · owns failure & recovery"]
-        A1["👁 AGENT 1 — Monitor\nreads ENS config · watches balances + pool rates"]
-        A2["⚖️ AGENT 2 — Decision\nFX spread × fee × risk tolerance\n→ HOLD or CONVERT"]
-        A3["⚡ AGENT 3 — Execution\nswap via Uniswap v4\nKeeperHub: gas · MEV protection · retry"]
-        A4["📣 AGENT 4 — Reporting\nwrite to 0G Storage\nTelegram alert to merchant"]
+    subgraph AXL ["Gensyn AXL — Encrypted P2P Mesh"]
+        subgraph NODE1 ["🟣 Coordinator Node"]
+            A0["🧠 AGENT 0 — Orchestrator\ncoordinates pipeline · owns failure & recovery"]
+        end
+        subgraph NODE2 ["🟣 Monitor Node"]
+            A1["👁 AGENT 1 — Monitor\nreads ENS config · watches balances + pool rates"]
+        end
+        subgraph NODE3 ["🟣 Analyst Node"]
+            A2["⚖️ AGENT 2 — Decision\nFX spread × fee × risk tolerance\n→ HOLD or CONVERT"]
+        end
+        subgraph NODE4 ["🟣 Action Node"]
+            A3["⚡ AGENT 3 — Execution\nswap via Uniswap v3\nKeeperHub: gas · MEV protection · retry"]
+            A4["📣 AGENT 4 — Reporting\nwrite to 0G Storage · Telegram alert"]
+        end
     end
 
     ENS["📋 ENS Text Records\nfx_threshold · risk_tolerance\npreferred_stablecoin · telegram_chat_id"]
-    UNI["🦄 Uniswap v4\nUSDC / EURC\nBase liquidity pools"]
+    UNI["🦄 Uniswap v3\nEURC / USDT → USDC\nBase liquidity pools"]
     KH["🔁 KeeperHub MCP\ngas estimation · MEV protection\nretry with exponential backoff"]
     ZERO["🗄 0G Storage\nimmutable audit log\nFX rate · decision · tx hash · outcome"]
     TG["📱 Telegram Bot API\n✅ swap executed · ⏸ hold · ⚠️ anomaly · 🛑 halt"]
 
-    BASE[["⬡ Base · Ethereum L2\nx402 on-chain settlement · Uniswap v4 · KeeperHub · ENS registry"]]
+    BASE[["⬡ Base · Ethereum L2\nx402 on-chain settlement · Uniswap v3 · KeeperHub · ENS registry"]]
 
     PAY --> A0
     A0 --> A1
@@ -84,6 +101,16 @@ Every inter-agent step settles via **x402 micropayments on Base** — agents pay
 
 ## Partner Integrations
 
+### Gensyn AXL — Encrypted Agent Transport Layer
+All inter-agent communication runs over Gensyn's AXL encrypted P2P mesh. CounterAgent deploys across **4 AXL nodes** — Coordinator, Monitor, Analyst, and Action — each running a distinct part of the pipeline. No centralised message broker, no single point of failure, no off-chain trust assumptions. Agents discover each other via the AXL registry and communicate over encrypted channels regardless of where each node is hosted.
+
+| AXL Node | Agents | Function |
+|---|---|---|
+| Coordinator | Agent 0 | Orchestrate pipeline, handle failures |
+| Monitor | Agent 1 | Poll ENS config and Uniswap pool rates |
+| Analyst | Agent 2 | Score FX opportunity, issue HOLD/CONVERT |
+| Action | Agent 3 + 4 | Execute swap, log to 0G, alert merchant |
+
 ### x402 — Inter-Agent Payment Settlement
 Each agent-to-agent handoff in the pipeline is settled via x402 micropayments on Base. When Agent 2 signals Agent 3 to execute, that instruction carries an on-chain payment — no off-chain trust required. The full pipeline is economically self-contained and auditable end-to-end.
 
@@ -99,16 +126,27 @@ Each merchant stores treasury configuration in ENS text records — one setup st
 
 Config is readable at runtime by Agent 1 — merchants update settings without touching any app.
 
-### Uniswap v4 — Swap Execution
-Agent 3 executes swaps across Base liquidity pools. For the hackathon demo, the repo includes reproducible Base Sepolia pool tooling in [`Uniswap/`](./Uniswap): it verifies Circle testnet USDC/EURC, initializes a Uniswap v4 `0.05%` pool, and prepares liquidity so the A3 plugin has a direct v4 pool fallback when the Uniswap Trading API returns no testnet route.
+The full ENS config schema including guardrails:
+
+| ENS Text Record | Example | Purpose |
+|---|---|---|
+| `counteragent.fx_threshold` | `0.005` | Minimum spread (0.5%) to trigger conversion |
+| `counteragent.risk_tolerance` | `moderate` | low / moderate / high |
+| `counteragent.preferred_stablecoin` | `USDC` | Target token |
+| `counteragent.telegram_chat_id` | `@merchantchat` | Alert + confirmation destination |
+| `counteragent.confirm_mode` | `strict` | `strict` = require Telegram YES · `auto` = execute after timeout |
+| `counteragent.max_swap_amount` | `500` | Hard cap per single transaction (USDC) |
+| `counteragent.daily_limit` | `2000` | Maximum total swapped per 24h |
+| `counteragent.max_slippage` | `0.003` | Reject swap if slippage exceeds 0.3% |
+
+### Uniswap v3 — Swap Execution
+Agent 3 executes swaps across Base liquidity pools:
 
 | Pair | Pool |
 |---|---|
-| EURC → USDC | Uniswap v4 Base / Base Sepolia demo pool |
-| USDT → USDC | Uniswap v4 Base |
-| USDC → EURC | Uniswap v4 Base / Base Sepolia demo pool |
-
-Runtime priority in A3: Uniswap Trading API with v4 enabled → seeded Uniswap v4 Base Sepolia pool fallback → oracle/dry-run fallback.
+| EURC → USDC | Uniswap v3 Base |
+| USDT → USDC | Uniswap v3 Base |
+| USDC → EURC | Uniswap v3 Base |
 
 ### KeeperHub — Execution Reliability
 KeeperHub MCP server handles:
@@ -126,31 +164,74 @@ Every consensus round writes to 0G:
 
 Verifiable on [storagescan.0g.ai](https://storagescan.0g.ai)
 
-### Telegram Bot API — Merchant Alerts
-Merchants receive real-time notifications:
+### Telegram Bot API — Merchant Alerts & Confirmations
+Telegram is **bidirectional** — merchants receive alerts *and* approve swaps. In `strict` confirm mode, no swap ever executes without an explicit YES from the merchant's phone.
+
+**Outbound alerts:**
 
 | Trigger | Alert |
 |---|---|
+| 🔔 Swap pending confirmation | Amount, rate, estimated saving — reply YES / NO |
 | ✅ Swap executed | Amount, rate achieved, fee saved vs card rails |
 | ⏸ Hold decision | Rate below threshold, monitoring continues |
 | 📊 FX approaching threshold | Heads-up before action |
 | ⚠️ Anomaly detected | Execution paused, review required |
 | 🛑 Critical halt | Agent 0 emergency stop |
 
+**Example confirmation message:**
+```
+🔔 CounterAgent wants to swap
+800 EURC → USDC @ 1.0812
+Saves $4.20 vs Stripe FX · Fee 0.05%
+
+Reply ✅ YES to confirm
+Reply ❌ NO to cancel
+Auto-executes in 15 min if no reply (auto mode only)
+```
+
+---
+
+## Safety & Guardrails
+
+CounterAgent is an *autonomous-within-limits* agent. Every guardrail is set by the merchant in their ENS config — the agent cannot exceed them under any circumstances.
+
+**What CounterAgent can do:**
+- Swap between approved stablecoins (USDC · EURC · USDT) on Base
+- Read your ENS configuration at runtime
+- Send Telegram alerts and confirmation requests
+- Log every decision and outcome to 0G Storage
+
+**What CounterAgent can never do:**
+- Send funds to any wallet outside the merchant's own address
+- Swap above the `max_swap_amount` per transaction
+- Exceed the `daily_limit` across all swaps in 24 hours
+- Execute if slippage exceeds `max_slippage`
+- Execute in `strict` mode without an explicit Telegram YES
+
+**Circuit breakers — Agent 0 halts the pipeline if:**
+- The live rate deviates more than 2% from the 7-day average (anomaly detection)
+- 3 consecutive execution failures occur
+- Slippage on the proposed swap exceeds the merchant's configured maximum
+- No valid ENS config is found for the wallet
+
+All halts are logged to 0G Storage with timestamp and reason. The merchant receives a 🛑 Telegram alert and must manually resume.
+
 ---
 
 ## How It Works — Step by Step
 
 1. Merchant wallet receives USDC, EURC, or USDT on Base
-2. Agent 1 reads ENS text records for merchant config
-3. Agent 1 polls Uniswap / oracle pool rates continuously
-4. When spread exceeds threshold → signal sent to Agent 2
-5. Agent 2 scores: FX rate × swap fee × risk tolerance → HOLD or CONVERT
-6. If CONVERT → Agent 3 submits swap via Uniswap v4 / Trading API
-7. KeeperHub MCP guarantees delivery with MEV protection + retry
-8. Agent 4 writes decision + result to 0G Storage
-9. Agent 4 fires Telegram alert to merchant
-10. Completion reported back to Orchestrator (Agent 0)
+2. Coordinator Node (Agent 0) initiates pipeline over Gensyn AXL mesh
+3. Monitor Node (Agent 1) reads ENS text records for merchant config
+4. Monitor Node polls Uniswap v3 pool rates continuously via AXL
+5. When spread exceeds threshold → AXL message sent to Analyst Node
+6. Analyst Node (Agent 2) scores: FX rate × swap fee × risk tolerance → HOLD or CONVERT
+7. If CONVERT → x402 micropayment triggers Action Node (Agent 3)
+8. Agent 3 submits swap via Uniswap v3; KeeperHub guarantees delivery
+9. x402 micropayment triggers Agent 4 (Reporting) on Action Node
+10. Agent 4 writes decision + result to 0G Storage
+11. Agent 4 fires Telegram alert to merchant
+12. Completion reported back to Coordinator Node (Agent 0) via AXL
 
 ---
 
@@ -161,8 +242,9 @@ Merchants receive real-time notifications:
 | Agent Framework | Claude Agent SDK (Anthropic) |
 | AI Models | Claude Sonnet 4.6 |
 | Network | Base (Ethereum L2) |
+| Agent Transport | Gensyn AXL (encrypted P2P mesh · 4 nodes) |
 | Inter-Agent Payments | x402 micropayments (on-chain settlement) |
-| Swap Execution | Uniswap v4 / Uniswap Trading API |
+| Swap Execution | Uniswap v3 |
 | Execution Reliability | KeeperHub MCP |
 | Config Store | ENS Text Records (on-chain) |
 | Audit Log | 0G Storage |
@@ -263,9 +345,9 @@ BASE_RPC_URL=
 
 | Sponsor | Prize | Integration |
 |---|---|---|
-| Uniswap Foundation | $5,000 | Swap execution via Uniswap v4 on Base |
+| Uniswap Foundation | $5,000 | Swap execution via Uniswap v3 on Base |
 | KeeperHub | $5,000 | Execution reliability MCP layer |
-| Gensyn | $5,000 | Decentralised ML compute for Decision Agent scoring model |
+| Gensyn | $5,000 | AXL encrypted P2P mesh as agent transport layer (4 nodes) |
 | ENS | — | On-chain merchant config via text records |
 | 0G Labs | — | Immutable decentralised audit log |
 
@@ -287,4 +369,3 @@ Built at **ETHGlobal Open Agents 2026** — April 24 to May 3, 2026
 - Twitter/X: [@abena_eth](https://twitter.com/abena_eth)
 - GitHub: [JulioMCruz/CounterAgent](https://github.com/JulioMCruz/CounterAgent)
 - ETHGlobal: [Open Agents 2026](https://ethglobal.com/events/openagents)
-
