@@ -8,11 +8,9 @@ import { WagmiProvider } from "wagmi"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { dynamicEvmNetworks } from "@/lib/registry"
 import { wagmiConfig } from "@/lib/wagmi"
+import { dynamicConfigured, dynamicEnvironmentId } from "@/lib/dynamic-config"
 
 const queryClient = new QueryClient()
-
-const dynamicEnvironmentId = process.env.NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID
-const dynamicConfigured = Boolean(dynamicEnvironmentId)
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false)

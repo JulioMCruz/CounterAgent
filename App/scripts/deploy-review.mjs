@@ -17,6 +17,25 @@ function sh(command) {
   return execFileSync('sh', ['-c', command], { encoding: 'utf8' }).trim()
 }
 
+function loadNetlifyBuildEnv() {
+  const authArg = process.env.NETLIFY_AUTH_TOKEN ? ` --auth '${process.env.NETLIFY_AUTH_TOKEN.replace(/'/g, `'\\''`)}'` : ''
+  try {
+    const output = sh(`netlify env:list --context production --plain${authArg}`)
+    const env = {}
+    for (const line of output.split('\n')) {
+      const index = line.indexOf('=')
+      if (index <= 0) continue
+      const key = line.slice(0, index)
+      const value = line.slice(index + 1)
+      if (key.startsWith('NEXT_PUBLIC_')) env[key] = value
+    }
+    return env
+  } catch {
+    console.warn('Warning: could not load Netlify production env for local Next build; using current process env only.')
+    return {}
+  }
+}
+
 function copyRoute(src, dst) {
   if (!existsSync(src)) return
   mkdirSync(dst.split('/').slice(0, -1).join('/'), { recursive: true })
@@ -28,7 +47,8 @@ rmSync('.next', { recursive: true, force: true })
 rmSync(outDir, { recursive: true, force: true })
 
 run('npm', ['run', 'lint'])
-run('npm', ['run', 'build'], { env: { ...process.env, BUILD_ID: stamp } })
+const netlifyBuildEnv = loadNetlifyBuildEnv()
+run('npm', ['run', 'build'], { env: { ...process.env, ...netlifyBuildEnv, BUILD_ID: stamp } })
 
 mkdirSync(join(outDir, '_next'), { recursive: true })
 cpSync('.next/static', join(outDir, '_next/static'), { recursive: true })
