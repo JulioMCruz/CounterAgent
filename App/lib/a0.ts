@@ -1,7 +1,4 @@
-export const orchestratorUrl =
-  process.env.NEXT_PUBLIC_ORCHESTRATOR_URL ||
-  process.env.NEXT_PUBLIC_A0_URL ||
-  "http://localhost:8787"
+export const orchestratorUrl = "/api/a0"
 
 export const a0Url = orchestratorUrl
 

@@ -43,7 +43,9 @@ copyRoute(join(appDir, 'alerts.html'), join(outDir, 'alerts/index.html'))
 copyRoute(join(appDir, 'onboarding.html'), join(outDir, 'onboarding/index.html'))
 copyRoute(join(appDir, '_not-found.html'), join(outDir, '404.html'))
 
+const a0ProxyUrl = process.env.ORCHESTRATOR_URL || process.env.A0_URL || process.env.NEXT_PUBLIC_ORCHESTRATOR_URL || process.env.NEXT_PUBLIC_A0_URL
 writeFileSync(join(outDir, '_redirects'), [
+  ...(a0ProxyUrl ? [`/api/a0/* ${a0ProxyUrl.replace(/\/$/, '')}/:splat 200`] : []),
   '/settings /settings/index.html 200',
   '/dashboard /dashboard/index.html 200',
   '/analytics /analytics/index.html 200',
