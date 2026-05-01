@@ -87,7 +87,7 @@ export default function AnalyticsPage() {
         {!address && (
           <Card>
             <CardContent className="px-4 py-4 text-sm text-muted-foreground">
-              Connect a registered wallet to see live analytics from A0/A2/A3/A4.
+              Connect a registered wallet to see live analytics from the orchestrated agent workflow.
             </CardContent>
           </Card>
         )}

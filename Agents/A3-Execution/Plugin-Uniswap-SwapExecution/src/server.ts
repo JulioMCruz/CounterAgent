@@ -1,7 +1,7 @@
 import cors from '@fastify/cors';
 import Fastify from 'fastify';
 import { createHash, randomUUID } from 'node:crypto';
-import { isAddress, parseUnits, type Address } from 'viem';
+import { createPublicClient, formatUnits, http, isAddress, parseAbi, parseUnits, type Address } from 'viem';
 import { z } from 'zod';
 import { UniswapApiError, UniswapTradingApiClient, type StablecoinSymbol, type TokenConfig } from './uniswap.js';
 
@@ -51,6 +51,7 @@ const uniswapApiUrl = process.env.UNISWAP_API_URL ?? 'https://trade-api.gateway.
 const uniswapApiKey = process.env.UNISWAP_API_KEY;
 const uniswapApiKeyConfigured = Boolean(uniswapApiKey && !uniswapApiKey.includes('<'));
 const chainId = Number(process.env.CHAIN_ID ?? 84532);
+const rpcUrl = process.env.BASE_SEPOLIA_RPC_URL ?? process.env.BASE_RPC_URL ?? 'https://sepolia.base.org';
 const keeperHubConfigured = Boolean(process.env.KEEPERHUB_API_URL && process.env.KEEPERHUB_API_KEY);
 const executorConfigured = Boolean(process.env.EXECUTOR_PRIVATE_KEY && !process.env.EXECUTOR_PRIVATE_KEY.includes('<'));
 
@@ -63,7 +64,21 @@ const uniswap = new UniswapTradingApiClient({
 
 const app = Fastify({ logger: true });
 
-type QuoteSource = 'uniswap-trading-api' | 'counteragent-oracle-fallback' | 'uniswap-api-unavailable-fallback';
+type QuoteSource = 'uniswap-trading-api' | 'uniswap-v4-pool-fallback' | 'counteragent-oracle-fallback' | 'uniswap-api-unavailable-fallback';
+
+const publicClient = createPublicClient({
+  transport: http(rpcUrl),
+  chain: {
+    id: chainId,
+    name: chainId === 84532 ? 'Base Sepolia' : 'Configured Chain',
+    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    rpcUrls: { default: { http: [rpcUrl] } }
+  }
+});
+
+const v4QuoterAbi = parseAbi([
+  'function quoteExactInputSingle(((address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks) poolKey,bool zeroForOne,uint128 exactAmount,bytes hookData) params) external returns (uint256 amountOut,uint256 gasEstimate)'
+]);
 
 type CounterAgentQuote = {
   quoteId: string;
@@ -133,6 +148,73 @@ function tokenConfig(symbol: StablecoinSymbol): TokenConfig {
   return { ...baseMainnetTokens[symbol], address: override ?? baseMainnetTokens[symbol].address };
 }
 
+function orderedCurrencies(a: Address, b: Address): [Address, Address] {
+  return BigInt(a) < BigInt(b) ? [a, b] : [b, a];
+}
+
+function v4QuoterAddress() {
+  return envAddress(`V4_QUOTER_${chainId}`) ?? envAddress('V4_QUOTER');
+}
+
+async function buildV4PoolFallbackQuote(input: z.infer<typeof quoteSchema>, details?: { reason?: string; apiAttempted?: boolean; apiStatus?: number; apiError?: string }): Promise<CounterAgentQuote | undefined> {
+  const quoter = v4QuoterAddress();
+  if (!quoter || input.fromToken === input.toToken) return undefined;
+
+  const fromToken = tokenConfig(input.fromToken);
+  const toToken = tokenConfig(input.toToken);
+  const amountInRaw = parseUnits(input.amount.replace(/,/g, ''), fromToken.decimals);
+  const fee = Number(process.env.V4_POOL_FEE ?? 500);
+  const tickSpacing = Number(process.env.V4_TICK_SPACING ?? 10);
+  const hooks = (envAddress(`V4_HOOKS_${chainId}`) ?? envAddress('V4_HOOKS') ?? '0x0000000000000000000000000000000000000000') as Address;
+  const [currency0, currency1] = orderedCurrencies(fromToken.address, toToken.address);
+  const zeroForOne = fromToken.address.toLowerCase() === currency0.toLowerCase();
+
+  try {
+    const result = await publicClient.simulateContract({
+      address: quoter,
+      abi: v4QuoterAbi,
+      functionName: 'quoteExactInputSingle',
+      args: [{ poolKey: { currency0, currency1, fee, tickSpacing, hooks }, zeroForOne, exactAmount: amountInRaw, hookData: '0x' }]
+    });
+
+    const [amountOutRaw] = result.result;
+    const amountInHuman = amountToNumber(input.amount);
+    const amountOutHuman = Number(formatUnits(amountOutRaw, toToken.decimals));
+    const rate = amountInHuman > 0 ? amountOutHuman / amountInHuman : 0;
+    const quoteId = createHash('sha256')
+      .update(JSON.stringify({ input, chainId, quoter, fee, tickSpacing, hooks, amountOutRaw: amountOutRaw.toString() }))
+      .digest('hex')
+      .slice(0, 24);
+
+    return {
+      quoteId,
+      provider: 'uniswap-v4-pool-fallback',
+      route: [input.fromToken, `Uniswap v4 ${fee}`, input.toToken],
+      tokenIn: fromToken.address,
+      tokenOut: toToken.address,
+      amountIn: input.amount,
+      amountInRaw: amountInRaw.toString(),
+      estimatedAmountOut: amountOutHuman.toFixed(toToken.decimals),
+      estimatedAmountOutRaw: amountOutRaw.toString(),
+      rate,
+      baselineRate: input.baselineRate ?? 1,
+      feeBps: fee === 500 ? 5 : Math.round(fee / 100),
+      priceImpactBps: 0,
+      slippageBps: input.slippageBps,
+      executable: false,
+      dryRun: true,
+      fallbackReason: details?.reason ?? 'base_sepolia_uniswap_v4_pool_quote',
+      apiAttempted: Boolean(details?.apiAttempted),
+      apiStatus: details?.apiStatus,
+      apiError: details?.apiError,
+      rawQuote: { quoter, poolKey: { currency0, currency1, fee, tickSpacing, hooks }, zeroForOne, amountOutRaw: amountOutRaw.toString() }
+    };
+  } catch (error) {
+    app.log.warn({ error, chainId, quoter, fee, tickSpacing }, 'Uniswap v4 pool fallback quote failed');
+    return undefined;
+  }
+}
+
 function amountToNumber(amount: string) {
   const parsed = Number(amount.replace(/,/g, ''));
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
@@ -185,10 +267,15 @@ function buildFallbackQuote(input: z.infer<typeof quoteSchema>, details?: { reas
 
 async function buildQuote(input: z.infer<typeof quoteSchema>): Promise<CounterAgentQuote> {
   if (!uniswapApiKeyConfigured || quoteMode === 'fallback-only') {
-    return buildFallbackQuote(input, {
+    const fallbackDetails = {
       reason: uniswapApiKeyConfigured ? 'fallback_only_mode' : 'uniswap_api_key_not_configured',
       apiAttempted: false
-    });
+    };
+
+    const v4Quote = await buildV4PoolFallbackQuote(input, fallbackDetails);
+    if (v4Quote) return v4Quote;
+
+    return buildFallbackQuote(input, fallbackDetails);
   }
 
   try {
@@ -211,13 +298,19 @@ async function buildQuote(input: z.infer<typeof quoteSchema>): Promise<CounterAg
     };
   } catch (error) {
     const apiError = error instanceof UniswapApiError ? error : undefined;
-    app.log.warn({ error, chainId }, 'Uniswap Trading API quote failed; falling back to CounterAgent oracle quote');
-    return buildFallbackQuote(input, {
+    const fallbackDetails = {
       reason: apiError?.status === 404 ? `uniswap_trading_api_unsupported_or_no_route_chain_${chainId}` : 'uniswap_trading_api_quote_failed',
       apiAttempted: true,
       apiStatus: apiError?.status,
       apiError: error instanceof Error ? error.message : 'uniswap_unknown_error'
-    });
+    };
+
+    app.log.warn({ error, chainId }, 'Uniswap Trading API quote failed; trying direct v4 pool fallback');
+    const v4Quote = await buildV4PoolFallbackQuote(input, fallbackDetails);
+    if (v4Quote) return v4Quote;
+
+    app.log.warn({ chainId }, 'Uniswap v4 pool fallback unavailable; falling back to CounterAgent oracle quote');
+    return buildFallbackQuote(input, fallbackDetails);
   }
 }
 
@@ -244,6 +337,8 @@ app.get('/healthz', async () => ({
     uniswapApiConfigured: Boolean(uniswapApiUrl && uniswapApiKeyConfigured),
     uniswapApiUrl,
     chainId,
+    v4PoolFallbackConfigured: Boolean(v4QuoterAddress()),
+    v4Quoter: v4QuoterAddress(),
     keeperHubConfigured,
     executorConfigured
   }

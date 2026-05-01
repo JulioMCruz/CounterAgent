@@ -123,7 +123,7 @@ export default function AlertsPage() {
               </div>
               <div className="flex-1">
                 <p className="text-sm font-bold">Agent Alerts</p>
-                <p className="text-xs text-header-foreground/60">Live events from A2/A3/A4 for the connected merchant</p>
+                <p className="text-xs text-header-foreground/60">Live Decision, Execution, and Reporting events for the connected merchant</p>
               </div>
               <span className="flex items-center gap-1.5 rounded-full bg-success/20 px-2.5 py-1 text-xs font-semibold text-success">
                 <span className="h-1.5 w-1.5 rounded-full bg-success" />
@@ -165,7 +165,7 @@ export default function AlertsPage() {
             ) : (
               <Card>
                 <CardContent className="px-4 py-4 text-sm text-muted-foreground">
-                  No alerts yet. Run a dry-run from Dashboard and A2/A3/A4 events will appear here.
+                  No alerts yet. Run a dry-run from Dashboard and agent workflow events will appear here.
                 </CardContent>
               </Card>
             )}

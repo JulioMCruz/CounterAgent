@@ -18,7 +18,8 @@ The plugin defaults to `EXECUTION_MODE=dry-run`, so demos can exercise the full 
 A0 Orchestrator
   -> A3 /execution/quote
       1. Try Uniswap Trading API /v1/quote
-      2. If unsupported/no-route/no-key, return CounterAgent oracle fallback quote
+      2. If Base Sepolia has no API route, quote the seeded Uniswap v4 USDC/EURC pool
+      3. If no pool quote is available, return CounterAgent oracle fallback quote
   -> A2 /decision/evaluate
   -> A3 /execution/execute when decision.action = CONVERT
       - dry-run: records execution event, no tx submitted
@@ -27,6 +28,8 @@ A0 Orchestrator
 ```
 
 This is intentionally **API-first with honest fallback**. Base Sepolia support/liquidity in the Trading API may be incomplete, so fallback responses include `apiAttempted`, `apiStatus`, `apiError`, and `fallbackReason` for demo visibility and for `FEEDBACK.md`.
+
+When `V4_QUOTER_84532` is configured, A3 tries the direct Uniswap v4 pool fallback before the oracle fallback. The pool setup scripts live in `../../../Uniswap` and target the Circle Base Sepolia USDC/EURC pair.
 
 ## Endpoints
 
@@ -109,9 +112,17 @@ UNISWAP_API_KEY=<UNISWAP_API_KEY>
 Optional token overrides let a different deployment use real testnet token addresses without changing code:
 
 ```text
-USDC_TOKEN_ADDRESS_84532=<USDC_ON_BASE_SEPOLIA>
-EURC_TOKEN_ADDRESS_84532=<EURC_ON_BASE_SEPOLIA>
+USDC_TOKEN_ADDRESS_84532=0x036CbD53842c5426634e7929541eC2318f3dCF7e
+EURC_TOKEN_ADDRESS_84532=0x808456652fdb597867f38412077A9182bf77359F
 USDT_TOKEN_ADDRESS_84532=<USDT_ON_BASE_SEPOLIA>
+```
+
+For the seeded Base Sepolia fallback pool, also configure:
+
+```text
+V4_QUOTER_84532=0x4a6513c898fe1b2d0e78d3b0e0a4a151589b1cba
+V4_POOL_FEE=500
+V4_TICK_SPACING=10
 ```
 
 If no override is supplied, the plugin uses canonical Base mainnet stablecoin addresses for sponsor-visible defaults. For Base Sepolia, provide token overrides when using real test tokens.

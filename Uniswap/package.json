@@ -1,0 +1,17 @@
+{
+  "name": "counteragent-uniswap-tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "verify:base-sepolia": "node scripts/verify-base-sepolia-tokens.mjs",
+    "pool:init:base-sepolia": "node scripts/init-base-sepolia-v4-pool.mjs",
+    "pool:add-liquidity-v4:base-sepolia": "node scripts/add-base-sepolia-v4-liquidity.mjs"
+  },
+  "dependencies": {
+    "@uniswap/sdk-core": "^7.13.0",
+    "@uniswap/v4-sdk": "^2.0.0",
+    "dotenv": "^16.4.7",
+    "viem": "^2.23.3"
+  }
+}

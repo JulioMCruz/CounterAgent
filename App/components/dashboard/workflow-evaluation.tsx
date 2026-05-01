@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 type TokenSymbol = "USDC" | "EURC" | "USDT"
 type RiskTolerance = "conservative" | "moderate" | "aggressive"
 
-const tokenOptions: TokenSymbol[] = ["EURC", "USDC", "USDT"]
+const tokenOptions: TokenSymbol[] = ["USDC", "EURC", "USDT"]
 
 function formatRate(rate?: number) {
   if (!rate) return "—"
@@ -37,9 +37,9 @@ export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }
   const [error, setError] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [amount, setAmount] = useState("100")
-  const [fromToken, setFromToken] = useState<TokenSymbol>("EURC")
-  const [toToken, setToToken] = useState<TokenSymbol>("USDC")
-  const [baselineRate, setBaselineRate] = useState("1.07")
+  const [fromToken, setFromToken] = useState<TokenSymbol>("USDC")
+  const [toToken, setToToken] = useState<TokenSymbol>("EURC")
+  const [baselineRate, setBaselineRate] = useState("0.93")
   const [fxThresholdBps, setFxThresholdBps] = useState("50")
   const [riskTolerance, setRiskTolerance] = useState<RiskTolerance>("moderate")
 
@@ -107,6 +107,7 @@ export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }
   const reportUri = result?.report?.storageUri ?? result?.report?.rootHash ?? result?.report?.contentHash
   const quoteProvider = quote && "provider" in quote ? String(quote.provider) : undefined
   const fallbackReason = quote && "fallbackReason" in quote ? String(quote.fallbackReason) : undefined
+  const estimatedAmountOut = quote && "estimatedAmountOut" in quote ? String(quote.estimatedAmountOut) : undefined
 
   return (
     <Card className="border-primary/20 bg-primary/5">
@@ -116,7 +117,7 @@ export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }
             Live Agent Workflow
           </CardTitle>
           <p className="mt-1 text-sm text-muted-foreground">
-            Runs Orchestration Agent → Uniswap API quote → Decision Agent → Execution dry-run → Reporting Agent.
+            Runs Orchestration Agent → Uniswap v4 quote → Decision Agent → Execution dry-run → Reporting Agent.
           </p>
         </div>
         <Button type="button" onClick={runWorkflow} disabled={isRunning || !address} size="sm">
@@ -191,6 +192,7 @@ export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }
                 {amount} {fromToken} → {toToken}
               </p>
               <p className="text-xs text-muted-foreground">Rate {formatRate(quote?.rate)}{quoteProvider ? ` · ${quoteProvider}` : ""}</p>
+              {estimatedAmountOut && <p className="text-xs text-muted-foreground">Est. out {estimatedAmountOut} {toToken}</p>}
               {fallbackReason && <p className="mt-1 text-[11px] text-warning">Fallback: {fallbackReason}</p>}
             </div>
 

@@ -105,7 +105,7 @@ export function AgentActivity({ dashboard, isLoading }: { dashboard?: DashboardS
           <p className="text-sm text-muted-foreground">Loading live agent activity…</p>
         ) : activities.length === 0 ? (
           <p className="rounded-lg border border-dashed border-muted-foreground/30 p-3 text-sm text-muted-foreground">
-            No activity yet. A1 monitor events appear after ENS/session lookup; A2/A3/A4 events appear after a dry-run.
+            No activity yet. Monitor events appear after ENS/session lookup; decision, execution, and reporting events appear after a dry-run.
           </p>
         ) : (
           activities.map((a) => (

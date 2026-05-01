@@ -22,12 +22,12 @@ Merchants accepting crypto payments leak value every day to poor FX timing:
 
 ## The Solution
 
-CounterAgent is a 5-agent autonomous system that watches your wallet, scores live FX rates, and converts stablecoins at the optimal moment via Uniswap v3 — with KeeperHub guaranteeing execution and **x402 micropayments settling every inter-agent step on-chain**. You get a Telegram alert when it happens.
+CounterAgent is a 5-agent autonomous system that watches your wallet, scores live FX rates, and converts stablecoins at the optimal moment via Uniswap v4 / Uniswap Trading API — with KeeperHub guaranteeing execution and **x402 micropayments settling every inter-agent step on-chain**. You get a Telegram alert when it happens.
 
 1. **Agent 0 (Orchestrator)** — coordinates all agents, owns failure and recovery decisions
 2. **Agent 1 (Monitor)** — reads ENS config, watches wallet balances and Uniswap pool rates in real time
 3. **Agent 2 (Decision)** — runs hold/convert scoring logic weighted by FX spread, fee, and risk tolerance
-4. **Agent 3 (Execution)** — submits swaps via Uniswap v3 on Base; KeeperHub MCP handles gas, MEV protection, retries; x402 handles inter-agent payment settlement
+4. **Agent 3 (Execution)** — submits swaps via Uniswap v4 / Uniswap Trading API on Base; KeeperHub MCP handles gas, MEV protection, retries; x402 handles inter-agent payment settlement
 5. **Agent 4 (Reporting)** — logs every decision to 0G Storage; sends Telegram alert to merchant
 
 ---
@@ -44,17 +44,17 @@ flowchart TD
         A0["🧠 AGENT 0 — Orchestrator\ncoordinates pipeline · owns failure & recovery"]
         A1["👁 AGENT 1 — Monitor\nreads ENS config · watches balances + pool rates"]
         A2["⚖️ AGENT 2 — Decision\nFX spread × fee × risk tolerance\n→ HOLD or CONVERT"]
-        A3["⚡ AGENT 3 — Execution\nswap via Uniswap v3\nKeeperHub: gas · MEV protection · retry"]
+        A3["⚡ AGENT 3 — Execution\nswap via Uniswap v4\nKeeperHub: gas · MEV protection · retry"]
         A4["📣 AGENT 4 — Reporting\nwrite to 0G Storage\nTelegram alert to merchant"]
     end
 
     ENS["📋 ENS Text Records\nfx_threshold · risk_tolerance\npreferred_stablecoin · telegram_chat_id"]
-    UNI["🦄 Uniswap v3\nEURC / USDT → USDC\nBase liquidity pools"]
+    UNI["🦄 Uniswap v4\nUSDC / EURC\nBase liquidity pools"]
     KH["🔁 KeeperHub MCP\ngas estimation · MEV protection\nretry with exponential backoff"]
     ZERO["🗄 0G Storage\nimmutable audit log\nFX rate · decision · tx hash · outcome"]
     TG["📱 Telegram Bot API\n✅ swap executed · ⏸ hold · ⚠️ anomaly · 🛑 halt"]
 
-    BASE[["⬡ Base · Ethereum L2\nx402 on-chain settlement · Uniswap v3 · KeeperHub · ENS registry"]]
+    BASE[["⬡ Base · Ethereum L2\nx402 on-chain settlement · Uniswap v4 · KeeperHub · ENS registry"]]
 
     PAY --> A0
     A0 --> A1
@@ -99,14 +99,16 @@ Each merchant stores treasury configuration in ENS text records — one setup st
 
 Config is readable at runtime by Agent 1 — merchants update settings without touching any app.
 
-### Uniswap v3 — Swap Execution
-Agent 3 executes swaps across Base liquidity pools:
+### Uniswap v4 — Swap Execution
+Agent 3 executes swaps across Base liquidity pools. For the hackathon demo, the repo includes reproducible Base Sepolia pool tooling in [`Uniswap/`](./Uniswap): it verifies Circle testnet USDC/EURC, initializes a Uniswap v4 `0.05%` pool, and prepares liquidity so the A3 plugin has a direct v4 pool fallback when the Uniswap Trading API returns no testnet route.
 
 | Pair | Pool |
 |---|---|
-| EURC → USDC | Uniswap v3 Base |
-| USDT → USDC | Uniswap v3 Base |
-| USDC → EURC | Uniswap v3 Base |
+| EURC → USDC | Uniswap v4 Base / Base Sepolia demo pool |
+| USDT → USDC | Uniswap v4 Base |
+| USDC → EURC | Uniswap v4 Base / Base Sepolia demo pool |
+
+Runtime priority in A3: Uniswap Trading API with v4 enabled → seeded Uniswap v4 Base Sepolia pool fallback → oracle/dry-run fallback.
 
 ### KeeperHub — Execution Reliability
 KeeperHub MCP server handles:
@@ -141,10 +143,10 @@ Merchants receive real-time notifications:
 
 1. Merchant wallet receives USDC, EURC, or USDT on Base
 2. Agent 1 reads ENS text records for merchant config
-3. Agent 1 polls Uniswap v3 pool rates continuously
+3. Agent 1 polls Uniswap / oracle pool rates continuously
 4. When spread exceeds threshold → signal sent to Agent 2
 5. Agent 2 scores: FX rate × swap fee × risk tolerance → HOLD or CONVERT
-6. If CONVERT → Agent 3 submits swap via Uniswap v3
+6. If CONVERT → Agent 3 submits swap via Uniswap v4 / Trading API
 7. KeeperHub MCP guarantees delivery with MEV protection + retry
 8. Agent 4 writes decision + result to 0G Storage
 9. Agent 4 fires Telegram alert to merchant
@@ -160,7 +162,7 @@ Merchants receive real-time notifications:
 | AI Models | Claude Sonnet 4.6 |
 | Network | Base (Ethereum L2) |
 | Inter-Agent Payments | x402 micropayments (on-chain settlement) |
-| Swap Execution | Uniswap v3 |
+| Swap Execution | Uniswap v4 / Uniswap Trading API |
 | Execution Reliability | KeeperHub MCP |
 | Config Store | ENS Text Records (on-chain) |
 | Audit Log | 0G Storage |
@@ -261,7 +263,7 @@ BASE_RPC_URL=
 
 | Sponsor | Prize | Integration |
 |---|---|---|
-| Uniswap Foundation | $5,000 | Swap execution via Uniswap v3 on Base |
+| Uniswap Foundation | $5,000 | Swap execution via Uniswap v4 on Base |
 | KeeperHub | $5,000 | Execution reliability MCP layer |
 | Gensyn | $5,000 | Decentralised ML compute for Decision Agent scoring model |
 | ENS | — | On-chain merchant config via text records |

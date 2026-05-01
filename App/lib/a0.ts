@@ -280,6 +280,8 @@ const stablecoinSymbolsByAddress: Record<string, string> = {
   "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": "USDC",
   "0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42": "EURC",
   "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2": "USDT",
+  "0x036cbd53842c5426634e7929541ec2318f3dcf7e": "USDC",
+  "0x808456652fdb597867f38412077a9182bf77359f": "EURC",
 }
 
 export function shortenAddress(value?: string | null) {
