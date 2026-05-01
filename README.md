@@ -195,8 +195,31 @@ Auto-executes in 15 min if no reply (auto mode only)
 
 CounterAgent is an *autonomous-within-limits* agent. Every guardrail is set by the merchant in their ENS config — the agent cannot exceed them under any circumstances.
 
+### Autopilot Treasury Vault
+
+The first Autopilot Vault slice adds a merchant-owned, non-custodial contract foundation in
+`Contracts/src/CounterAgentTreasuryVault.sol` plus `CounterAgentTreasuryVaultFactory.sol`. The merchant owns the vault, deposits ERC20 funds
+directly, and can revoke policy or withdraw at any time. A0 only prepares a draft policy intent from
+`POST /vault/plan`; it does not receive keys, custody funds, or require a deployed vault address.
+For no-human-in-the-loop execution, the intended authorized executor is A3 (`A3-Uniswap-SwapExecution`)
+through the configured `EXECUTION_AGENT_ADDRESS`, not the web app or A0 server.
+
+The vault enforces the merchant's bounded permission on-chain before agent execution:
+
+- approved stablecoin allowlist: Base (USDC, EURC, USDT) and Celo (cUSD, cEUR, cREAL, cKES, cCOP, cGHS)
+- approved target allowlist, for example a future Uniswap adapter or KeeperHub target
+- `maxTradeAmount`
+- `dailyLimit`
+- `maxSlippageBps`
+- `expiresAt`
+- active or revoked policy state
+
+A factory creates one deterministic minimal-proxy/clone vault per merchant wallet. We will deploy one factory per supported testnet first: Base Sepolia and Celo Sepolia; mainnet follows after review. The first implementation intentionally uses a generic whitelisted `executeCall` guard rather than a
+direct router integration. This keeps the custody and policy boundary auditable while leaving room
+for a dedicated swap adapter in a later slice.
+
 **What CounterAgent can do:**
-- Swap between approved stablecoins (USDC · EURC · USDT) on Base
+- Swap between approved stablecoins on Base (USDC · EURC · USDT) and Celo (cUSD · cEUR · cREAL · cKES · cCOP · cGHS)
 - Read your ENS configuration at runtime
 - Send Telegram alerts and confirmation requests
 - Log every decision and outcome to 0G Storage
@@ -369,3 +392,38 @@ Built at **ETHGlobal Open Agents 2026** — April 24 to May 3, 2026
 - Twitter/X: [@abena_eth](https://twitter.com/abena_eth)
 - GitHub: [JulioMCruz/CounterAgent](https://github.com/JulioMCruz/CounterAgent)
 - ETHGlobal: [Open Agents 2026](https://ethglobal.com/events/openagents)
+
+
+## Next Mainnet Step
+
+Before mainnet, rename the public ENS surface from `counteragents.eth` to `counteragents.eth`/`counteragents.eth` in product copy and ENS provisioning configuration, then deploy factories on Base and Celo mainnet.
+
+### Upgradeability
+
+All CounterAgent contracts are now aligned to OpenZeppelin upgradeability patterns:
+
+- `MerchantRegistry`: UUPS upgradeable behind `ERC1967Proxy`.
+- `CounterAgentENSRegistrar`: UUPS upgradeable behind `ERC1967Proxy`.
+- `CounterAgentTreasuryVaultFactory`: UUPS upgradeable behind `ERC1967Proxy`.
+- Merchant vaults: `BeaconProxy` instances owned/configured by the merchant, with implementation upgrades routed through an OpenZeppelin `UpgradeableBeacon` owned by the factory.
+
+## Testnet Deployments — Counter Agents
+
+Owner wallet: `0x987D68A59a5A2Ff39B723abFaD6678fd22D3510b`  
+Execution agent / A3: `0xDaa23fF7820b92eA5D78457adc41Cab1af97EbbC`  
+ENS parent: `counteragents.eth`
+
+| Network | Contract | Address |
+| --- | --- | --- |
+| Ethereum Sepolia | ENS Registrar Proxy | `0x1e25Aac761220e991DD65f8Cd74045007AbAa445` |
+| Ethereum Sepolia | ENS Registrar Implementation | `0xd532D7C9Ddc28d16601FaA5Cc6F54cDABb703C28` |
+| Base Sepolia | MerchantRegistry Proxy | `0x9857d987F57607b1e6431Ab94D26a866870b7a3D` |
+| Base Sepolia | TreasuryVaultFactory Proxy | `0x6FBbFb4F41b2366B10b93bae5D1a1A4aC3c734BA` |
+| Base Sepolia | TreasuryVault Beacon | `0x556Ae9f1451EE58f649DDd896c54170672c31f5D` |
+| Base Sepolia | TreasuryVault Implementation | `0x22fB8006F52705B68Ed53cAa7D04494f1a3d556b` |
+| Celo Sepolia | MerchantRegistry Proxy | `0x1e25Aac761220e991DD65f8Cd74045007AbAa445` |
+| Celo Sepolia | TreasuryVaultFactory Proxy | `0xaD85EC495f8782fC581C0f06e73e4075A7C077E9` |
+| Celo Sepolia | TreasuryVault Beacon | `0xc6A8506cfDd83F4E8739D7aB18fCEABfa35fa97A` |
+| Celo Sepolia | TreasuryVault Implementation | `0x048F81D4C1bB6256AB17514DD9fc6897BeD91c26` |
+
+Full machine-readable deployment metadata: `deployments/counteragent-testnet.json`.

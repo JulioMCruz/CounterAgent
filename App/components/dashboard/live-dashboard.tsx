@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query"
 import { AgentActivity } from "@/components/dashboard/agent-activity"
+import { AutopilotVaultCard } from "@/components/dashboard/autopilot-vault-card"
 import { Holdings } from "@/components/dashboard/holdings"
 import { MonthlySavings } from "@/components/dashboard/monthly-savings"
 import { TreasuryBalance } from "@/components/dashboard/treasury-balance"
@@ -24,6 +25,8 @@ export function LiveDashboard() {
   return (
     <>
       <WorkflowEvaluation onCompleted={() => window.setTimeout(() => void dashboardQuery.refetch(), 3_000)} />
+
+      <AutopilotVaultCard />
 
       <div className="flex flex-col gap-4 lg:grid lg:grid-cols-2 lg:gap-6">
         <TreasuryBalance dashboard={dashboard} isLoading={dashboardQuery.isLoading} />

@@ -10,7 +10,7 @@
 
 counteragent.perkos.xyz {
   import counteragent_headers
-  @orchestrator_api path /session/* /onboarding/* /workflow/* /ens/* /dashboard/*
+  @orchestrator_api path /session/* /onboarding/* /workflow/* /vault/* /ens/* /dashboard/*
   handle @orchestrator_api {
     reverse_proxy orchestrator-plugin:8787
   }
@@ -22,7 +22,7 @@ counteragent.perkos.xyz {
 
 orchestrator.counteragent.perkos.xyz {
   import counteragent_headers
-  @orchestrator_api path /session/* /onboarding/* /workflow/* /ens/* /dashboard/*
+  @orchestrator_api path /session/* /onboarding/* /workflow/* /vault/* /ens/* /dashboard/*
   handle @orchestrator_api {
     reverse_proxy orchestrator-plugin:8787
   }

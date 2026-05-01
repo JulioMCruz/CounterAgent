@@ -202,6 +202,49 @@ export type WorkflowEvaluateResponse = {
   error?: string
 }
 
+export type BaseStablecoin = "USDC" | "EURC" | "USDT"
+export type CeloStablecoin = "cUSD" | "cEUR" | "cREAL" | "cKES" | "cCOP" | "cGHS"
+export type SupportedStablecoin = BaseStablecoin | CeloStablecoin
+
+export type VaultPlanRequest = {
+  walletAddress: `0x${string}`
+  chainId?: number
+  preferredStablecoin?: SupportedStablecoin
+  mode?: "conservative" | "moderate" | "active"
+  authorizedAgent?: `0x${string}`
+  targetAllowlist?: `0x${string}`[]
+}
+
+export type VaultPlanResponse = {
+  ok: true
+  status: "draft"
+  custodyModel: "merchant-owned-non-custodial"
+  chainId: number
+  vault: {
+    deployedAddressRequired: boolean
+    owner: `0x${string}`
+    authorizedAgent: `0x${string}` | null
+    tokenAllowlist: { symbol: SupportedStablecoin; address: `0x${string}` }[]
+    targetAllowlist: `0x${string}`[]
+    preferredStablecoin: { symbol: SupportedStablecoin; address: `0x${string}` }
+    policy: {
+      mode: "conservative" | "moderate" | "active"
+      maxTradeAmount: string
+      dailyLimit: string
+      maxSlippageBps: number
+      expiresAt: number
+      active: boolean
+    }
+  }
+  intent: {
+    domain: Record<string, unknown>
+    types: Record<string, { name: string; type: string }[]>
+    primaryType: "VaultPolicy"
+    message: Record<string, unknown>
+  }
+  notes: string[]
+}
+
 export type DashboardMonitorEvent = {
   agent: "A1"
   type: "ens-config" | "merchant-lookup" | "wallet-watch" | "threshold-signal" | "provision"
@@ -415,6 +458,20 @@ export async function evaluateWorkflow(input: WorkflowEvaluateRequest) {
   }
 
   return res.json() as Promise<WorkflowEvaluateResponse>
+}
+
+export async function prepareVaultPlan(input: VaultPlanRequest) {
+  const res = await fetch(`${orchestratorUrl}/vault/plan`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  })
+
+  if (!res.ok) {
+    throw new Error(`Orchestrator vault plan failed: ${res.status}`)
+  }
+
+  return res.json() as Promise<VaultPlanResponse>
 }
 
 export async function fetchDashboardState(walletAddress: `0x${string}`) {
