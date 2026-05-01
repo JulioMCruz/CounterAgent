@@ -76,6 +76,14 @@ writeFileSync(join(outDir, '_redirects'), [
   '',
 ].join('\n'))
 
+writeFileSync(join(outDir, '_headers'), [
+  '/*',
+  '  Cache-Control: no-cache, no-store, must-revalidate',
+  '/_next/static/*',
+  '  Cache-Control: public, max-age=31536000, immutable',
+  '',
+].join('\n'))
+
 const version = readFileSync('lib/build-info.ts', 'utf8').match(/"version": "([^"]+)"/)?.[1] ?? stamp
 console.log(`Built App Version: ${version}`)
 console.log(`Deploy dir: ${outDir} (${sh(`du -sh ${outDir} | awk '{print $1}'`)})`)
