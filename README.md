@@ -415,4 +415,4 @@ ENS parent: `counteragents.eth`
 | Celo Sepolia | TreasuryVault Beacon | `0xc6A8506cfDd83F4E8739D7aB18fCEABfa35fa97A` |
 | Celo Sepolia | TreasuryVault Implementation | `0x048F81D4C1bB6256AB17514DD9fc6897BeD91c26` |
 
-Full machine-readable deployment metadata: `deployments/counteragent-testnet.json`.
+Full machine-readable deployment metadata: `Contracts/deployments/counteragent-testnet.json`. Vault architecture notes live in `Vault/README.md`.
