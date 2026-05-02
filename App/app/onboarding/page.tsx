@@ -4,7 +4,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { DynamicWidget } from "@dynamic-labs/sdk-react-core"
-import { Zap, ArrowLeft, Loader2, Bell, Coins, FileText, Globe2, Network, ShieldCheck, TrendingUp, CheckCircle2, Pause, ArrowRightLeft } from "lucide-react"
+import { Zap, ArrowLeft, Loader2, Bell, Coins, FileText, Globe2, Network, ShieldCheck, TrendingUp, Pause, ArrowRightLeft, AlertTriangle, CalendarDays, Link2 } from "lucide-react"
 import { useAccount, useChainId, useSignTypedData, useSwitchChain } from "wagmi"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -334,7 +334,8 @@ export default function OnboardingPage() {
                   ["Guardrails", `${riskTolerance} risk`],
                   ["FX Rate", `${threshold[0].toFixed(1)}% trigger`],
                   ["Telegram", telegramChat || "not connected"],
-                  ["Alerts", "A2 decisions · A3 swaps · A4 reports"],
+                  ["Alerts", "Telegram · anomaly · weekly"],
+                  ["Integrations", "Uniswap v4 · ENS · OG"],
                 ].map(([label, value]) => (
                   <div key={label} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-secondary/50 px-3 py-2">
                     <span className="text-xs font-semibold text-muted-foreground">{label}</span>
@@ -461,6 +462,8 @@ export default function OnboardingPage() {
                   { agent: "A2", title: "Decision alerts", description: "Convert/Hold decisions and confidence", icon: Pause, tone: "bg-warning/10 text-warning-foreground" },
                   { agent: "A3", title: "Execution alerts", description: "Quotes, swaps, and skipped executions", icon: ArrowRightLeft, tone: "bg-success/10 text-success" },
                   { agent: "A4", title: "Report alerts", description: "Audit report pointers and review events", icon: FileText, tone: "bg-primary/10 text-primary" },
+                  { agent: "!", title: "Anomaly alerts", description: "Critical events only", icon: AlertTriangle, tone: "bg-destructive/10 text-destructive" },
+                  { agent: "W", title: "Weekly summary", description: "Every Monday 9am", icon: CalendarDays, tone: "bg-primary/10 text-primary" },
                 ].map((alert) => (
                   <div key={alert.agent} className="flex items-center gap-2 rounded-xl border border-border bg-secondary/40 px-3 py-2">
                     <span className={`flex h-7 w-7 items-center justify-center rounded-full ${alert.tone}`}>
@@ -473,6 +476,24 @@ export default function OnboardingPage() {
                       </div>
                       <p className="truncate text-[11px] text-muted-foreground">{alert.description}</p>
                     </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Integrations */}
+          <Card>
+            <CardContent className="px-4 py-4">
+              <label className="mb-3 block text-sm font-semibold text-foreground">Settings Integrations</label>
+              <div className="grid gap-2">
+                {["Uniswap v4", "ENS Records", "OG Protocol"].map((name) => (
+                  <div key={name} className="flex items-center gap-3 rounded-xl border border-border bg-secondary/40 px-3 py-2">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-secondary">
+                      <Link2 className="h-4 w-4 text-muted-foreground" />
+                    </span>
+                    <span className="flex-1 text-sm font-semibold text-foreground">{name}</span>
+                    <span className="text-xs font-bold text-success">Active</span>
                   </div>
                 ))}
               </div>
