@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Slider } from "@/components/ui/slider"
+import { AgentInteractionFlow } from "@/components/agent-interaction-flow"
 import { SessionHeaderActions } from "@/components/session-header-actions"
 import { prepareOnboarding, startOnboarding, type OnboardingPrepareResponse } from "@/lib/a0"
 import {
@@ -100,6 +101,16 @@ export default function OnboardingPage() {
   const [preparedRegistration, setPreparedRegistration] = useState<OnboardingPrepareResponse | null>(null)
 
   const connectedToTargetChain = chainId === activeChain.id
+  const onboardingFlowPhase = error
+    ? "error"
+    : isActivating || isSigning
+      ? "mining"
+      : preparedRegistration
+        ? "confirming"
+        : statusText
+          ? "preparing"
+          : "idle"
+
 
   async function handleSwitchNetwork() {
     setError(null)
@@ -302,6 +313,39 @@ export default function OnboardingPage() {
               </Card>
             )
           })}
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+          <AgentInteractionFlow
+            mode="treasury-config-update"
+            phase={onboardingFlowPhase}
+            heightClassName="h-[310px]"
+          />
+
+          <Card>
+            <CardContent className="px-4 py-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Current onboarding variables</p>
+              <h2 className="mt-1 text-lg font-black text-foreground">Compare config before activation</h2>
+              <div className="mt-4 grid gap-2">
+                {[
+                  ["ENS", merchantSlug ? `${merchantSlug}.${ensParent}` : `pending.${ensParent}`],
+                  ["Network", `${activeChain.name} · ${activeChain.id}`],
+                  ["Token", preferredCoin],
+                  ["Guardrails", `${riskTolerance} risk`],
+                  ["FX Rate", `${threshold[0].toFixed(1)}% trigger`],
+                  ["Telegram", telegramChat || "not connected"],
+                ].map(([label, value]) => (
+                  <div key={label} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-secondary/50 px-3 py-2">
+                    <span className="text-xs font-semibold text-muted-foreground">{label}</span>
+                    <span className="truncate text-right font-mono text-xs font-bold text-foreground">{value}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                The animation stays visible so the new fields can be reviewed against the same agent workflow used by the dashboard.
+              </p>
+            </CardContent>
+          </Card>
         </div>
 
         {!address && (
