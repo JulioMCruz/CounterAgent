@@ -137,9 +137,10 @@ If no override is supplied, the plugin uses canonical Base mainnet stablecoin ad
 - No API keys are committed; use `UNISWAP_API_KEY`.
 - No server-side live transaction submission by default.
 - `EXECUTION_MODE=dry-run` records quote/execution events for dashboard and reporting.
-- `/execution/swap` returns calldata for wallet signing instead of taking custody.
-- Server-side custody via `EXECUTOR_PRIVATE_KEY` remains intentionally disabled until reviewed.
+- `EXECUTION_MODE=vault-dry-run` resolves the merchant vault and prepares the `executeCall` envelope without submitting a transaction.
+- `EXECUTION_MODE=vault-live` uses `EXECUTOR_PRIVATE_KEY` to call the merchant-owned vault `executeCall(...)` after policy checks; use only with reviewed router calldata and funded testnet vaults.
+- `/execution/swap` returns calldata for wallet signing when using browser-wallet mode.
 
-## Hackathon notes
+## Integration notes
 
 The root `FEEDBACK.md` documents the Uniswap Trading API experience, including Base Sepolia gaps. Keep it updated whenever the API returns unsupported chain, no route, liquidity, simulation, or calldata issues.
