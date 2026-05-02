@@ -1,24 +1,36 @@
 # CounterAgent
 
-Autonomous treasury operations for merchants that accept stablecoins.
+Autonomous stablecoin treasury management for merchants on Base and Celo, within rules the merchant controls.
 
-CounterAgent watches merchant balances, reads policy from ENS, evaluates live swap routes through Uniswap, coordinates a five-agent workflow over Gensyn AXL, and publishes an auditable report for every decision. The product goal is simple: help merchants keep revenue in their preferred stablecoin without giving a server custody or asking an operator to watch FX markets all day.
+CounterAgent is built for a very practical problem: merchants can receive stablecoins in more than one currency, but converting at the right moment still takes manual work. Someone has to watch balances, compare routes, check fees and slippage, decide whether a conversion is worth it, and keep a record of what happened.
 
-## Executive summary
+CounterAgent turns that into a five-agent workflow. The app reads the merchant's policy from ENS, asks Uniswap for route intelligence, scores whether to hold or convert, prepares a safe execution path, and publishes a report. The merchant keeps custody and visibility throughout the process.
 
-Stablecoin payments are becoming normal for merchants, but treasury operations are still manual. A merchant can receive EURC, USDT, cUSD, cEUR, or CELO, then lose margin through delayed conversion, weak routes, unmanaged slippage, or poor operational controls.
+## The problem
 
-CounterAgent turns that workflow into a bounded autonomous system:
+Merchants accepting crypto payments can leak value through poor treasury timing:
 
-- ENS stores merchant policy, profile, and agent discovery records.
-- Gensyn AXL carries agent-to-agent coordination across dedicated agent nodes.
-- Uniswap Trading API and direct route diagnostics produce swap intelligence before execution.
-- A non-custodial vault model keeps funds merchant-owned and policy-bound.
-- Reporting and alerts create a durable operational trail.
+- Converting EURC, USDT, cUSD, cEUR, or CELO manually means watching rates and fees.
+- Good routes are not always available on every network or testnet.
+- Slippage, approvals, and gas can turn a good-looking conversion into a bad one.
+- A fully centralized bot creates a trust problem: who controls the policy, the keys, and the audit trail?
+- Most apps show a swap button, but not the reasoning behind the swap.
 
-The wedge is treasury automation for small and mid-sized merchants. The larger opportunity is an agent-operated finance layer where configuration, identity, routing, execution, and proof are all composable.
+## What CounterAgent does
 
-## What to notice first
+CounterAgent watches a merchant wallet or vault and runs a bounded treasury workflow:
+
+1. Resolve the merchant's ENS profile, policy, alert destination, and agent identity mesh.
+2. Check the requested token pair and amount from the app.
+3. Ask Uniswap for route intelligence through the Trading API and V4/V3 route diagnostics.
+4. Score the route against merchant policy, risk tolerance, threshold, slippage, gas, and approval requirements.
+5. Return a HOLD or CONVERT decision with a readable reason.
+6. Prepare wallet-signable calldata or a vault execution path only when policy allows it.
+7. Publish the outcome through reporting and alerts.
+
+That is the core product: an autonomous treasury agent that explains its work before it acts.
+
+## What the app proves
 
 | Area | What is implemented | Why it matters |
 | --- | --- | --- |
@@ -29,9 +41,11 @@ The wedge is treasury automation for small and mid-sized merchants. The larger o
 | Vault safety | Merchant-owned vault factory and policy intent flow | Preserves non-custodial design while enabling bounded automation |
 | App experience | Dashboard surfaces ENS profile, AXL status, route intelligence, vault plan, reports | Reviewers and operators can see the agent workflow, not just read logs |
 
-## Product narrative
+## How the workflow feels in the app
 
-A merchant receives stablecoin payments on Base or Celo. CounterAgent resolves the merchant's ENS profile and policy, checks balances and preferred stablecoin, asks Uniswap for route intelligence, scores whether conversion is worthwhile, prepares a safe execution path, and records the outcome.
+A merchant connects a wallet and lands on a dashboard that shows the ENS merchant profile, the role-based agent identity mesh, the AXL transport status, the Uniswap route intelligence panel, and the vault policy model. From there, the merchant can run a treasury workflow and see how each agent contributes.
+
+The important part is visibility. CounterAgent does not simply say “swap” or “do not swap.” It shows the route source, protocols, gas, price impact, approval requirement, fallback reason, decision confidence, and report trail.
 
 The merchant keeps control:
 
@@ -40,7 +54,7 @@ The merchant keeps control:
 - The execution agent can only operate within configured limits.
 - Every decision is visible in the app and report trail.
 
-CounterAgent is designed to answer the core investor and reviewer question: can autonomous agents perform useful financial operations without becoming an opaque custodial bot? The answer here is yes: keep custody bounded, publish identity and policy through ENS, coordinate agents through AXL, and make each Uniswap route decision explainable.
+This makes the app useful as a product demo and as a technical review surface: the agent workflow is visible, the policy is inspectable, and the execution path is bounded.
 
 ## Agent workflow
 
@@ -334,7 +348,7 @@ For a reviewer, the fastest path is:
 
 | Surface | Purpose |
 | --- | --- |
-| Landing | Product narrative and wallet entry |
+| Landing | Product explanation and wallet entry |
 | Onboarding | Merchant registration, ENS setup, Telegram setup, profile records |
 | Dashboard | Live workflow, ENS profile, agent identity mesh, AXL status, route intelligence, vault plan |
 | Analytics | Savings and volume aggregates from workflow history |
@@ -437,7 +451,7 @@ flowchart LR
   Tests --> A4
 ```
 
-## Why this can become a company
+## Why this matters beyond the demo
 
 CounterAgent starts with a specific pain: merchants accepting stablecoins need treasury decisions that are faster and safer than manual conversion. The same architecture can expand into broader autonomous finance operations:
 
