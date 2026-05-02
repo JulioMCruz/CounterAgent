@@ -2,7 +2,7 @@
 
 Purpose: research swap support for CounterAgent across Ethereum mainnet, Base Sepolia, Celo testnet, and Celo mainnet.
 
-Generated: 2026-05-02.
+Prepared: 2026-05-02.
 
 ## Official integration facts
 
@@ -76,7 +76,7 @@ Celo Sepolia token contracts are documented by Celo, but the Uniswap docs curren
 | --- | --- | --- |
 | cUSD | `0x62492A644A588FD904270BeD06ad52B9abfEA1aE` | legacy Alfajores cUSD from Celo docs/search index |
 | cEUR | `0xf9ecE301247aD2CE21894941830A2470f4E774ca` | legacy Alfajores cEUR from Celo docs/search index |
-| CELO | `0x874069Fa1Eb16D44d622F2e0Ca25eeA172369bC1` | common Alfajores CELO token reference; verify before production demo |
+| CELO | `0x874069Fa1Eb16D44d622F2e0Ca25eeA172369bC1` | common Alfajores CELO token reference; verify before production use |
 
 ### Celo Sepolia
 
@@ -129,14 +129,14 @@ Checked with `UniswapV3Factory.getPool(tokenA, tokenB, fee)` across fee tiers `1
 | cUSD/cEUR | No v3 pool found in the scan. |
 | CELO/cUSD | No v3 pool found in the scan. |
 
-## Product recommendations
+## Implementation notes
 
-1. Add Celo-aware token support in A3: `CELO`, `USDC`, `USDT`, `CUSD`, `CEUR`, and aliases `USDm`, `EURm` if we want UI labels to match Celo docs.
+1. Add Celo-aware token support in A3: `CELO`, `USDC`, `USDT`, `CUSD`, `CEUR`, and aliases `USDm`, `EURm` if UI labels should match Celo docs.
 2. Add chain-aware defaults:
    - Ethereum mainnet: USDC/USDT/EURC.
    - Base Sepolia: USDC/EURC test pair, v4 fallback if configured.
    - Celo mainnet: USDC/USDT/cUSD/cEUR/CELO, Trading API first.
    - Celo Alfajores: direct v3 scan/fallback only unless Trading API later supports it.
-3. Add `/execution/tokens` and `/execution/routes/preview` so the dashboard can show real route discovery instead of a hidden quote call.
-4. Add a Treasury Autopilot panel that ranks route candidates by quote availability, liquidity, price impact, gas estimate, and approval requirement.
-5. For the hackathon demo, Celo mainnet has the strongest live pool story: cUSD/USDC, cEUR/USDC, CELO/cUSD, and USDC/USDT pools all exist with measurable liquidity.
+3. Add `/execution/tokens` and `/execution/routes/preview` so the application can expose route discovery explicitly.
+4. Add a route-intelligence view that ranks route candidates by quote availability, liquidity, price impact, gas estimate, and approval requirement.
+5. Based on the observed pool scan, Celo mainnet has the strongest live route coverage: cUSD/USDC, cEUR/USDC, CELO/cUSD, and USDC/USDT pools all exist with measurable liquidity.
