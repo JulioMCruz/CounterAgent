@@ -453,40 +453,62 @@ export default function OnboardingPage() {
                   <div className="grid gap-5">
                     <div>
                       <h3 className="text-lg font-black text-foreground">Preferred Stablecoin</h3>
-                      <p className="text-sm text-muted-foreground">Choose the token the agent should preserve after conversion.</p>
+                      <p className="text-sm text-muted-foreground">
+                        Choose a token available on {selectedNetwork ?? "the selected network"}. Other network tokens stay visible so you understand the expansion path.
+                      </p>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {(["USDC", "EURC", "USDT"] as const).map((coin) => (
-                        <button
-                          key={coin}
-                          onClick={() => { setPreparedRegistration(null); setPreferredCoin(coin) }}
-                          className={`rounded-xl border px-4 py-2.5 text-sm font-bold transition-colors ${preferredCoin === coin ? "border-primary bg-primary/10 text-primary" : "border-border bg-background text-foreground hover:border-primary/40"}`}
-                        >
-                          <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full bg-primary" />{coin}
-                        </button>
-                      ))}
+
+                    <div>
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <p className="text-sm font-bold text-foreground">Base tokens</p>
+                        {selectedNetwork === "Base" ? <span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-black text-primary">Enabled</span> : null}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {(["USDC", "EURC", "USDT"] as const).map((coin) => {
+                          const enabled = selectedNetwork === "Base"
+                          return (
+                            <button
+                              key={coin}
+                              type="button"
+                              disabled={!enabled}
+                              onClick={() => { if (!enabled) return; setPreparedRegistration(null); setPreferredCoin(coin) }}
+                              className={`rounded-xl border px-4 py-2.5 text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${preferredCoin === coin ? "border-primary bg-primary/10 text-primary" : enabled ? "border-border bg-background text-foreground hover:border-primary/40" : "border-border bg-secondary text-muted-foreground"}`}
+                            >
+                              <span className={`mr-2 inline-block h-2.5 w-2.5 rounded-full ${enabled ? "bg-primary" : "bg-muted-foreground/40"}`} />{coin}
+                            </button>
+                          )
+                        })}
+                      </div>
                     </div>
+
                     <div className="border-t border-border pt-4">
-                      <p className="text-sm font-bold text-muted-foreground">Also available on Celo</p>
-                      <div className="mt-3 flex flex-wrap gap-2">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <p className="text-sm font-bold text-foreground">Celo tokens</p>
+                        {selectedNetwork === "Celo" ? <span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-black text-primary">Enabled</span> : null}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
                         {([
                           ["cUSD", "CUSD", true],
                           ["cEUR", "CEUR", true],
+                          ["CELO", "CELO", true],
                           ["cKES", "CKES", false],
                           ["cGHS", "CGHS", false],
                           ["cREAL", "CREAL", false],
                           ["eXOF", "EXOF", false],
-                        ] as const).map(([label, value, enabled]) => (
-                          <button
-                            key={label}
-                            type="button"
-                            disabled={!enabled}
-                            onClick={() => { if (!enabled) return; setSelectedNetwork("Celo"); setPreparedRegistration(null); setPreferredCoin(value as typeof stablecoins[number]) }}
-                            className="rounded-xl border border-border bg-background px-3 py-2 text-xs font-bold text-foreground hover:border-primary/40 disabled:opacity-60"
-                          >
-                            <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full bg-emerald-400" />{label}
-                          </button>
-                        ))}
+                        ] as const).map(([label, value, supported]) => {
+                          const enabled = selectedNetwork === "Celo" && supported
+                          return (
+                            <button
+                              key={label}
+                              type="button"
+                              disabled={!enabled}
+                              onClick={() => { if (!enabled) return; setPreparedRegistration(null); setPreferredCoin(value as typeof stablecoins[number]) }}
+                              className={`rounded-xl border px-3 py-2 text-xs font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${preferredCoin === value ? "border-primary bg-primary/10 text-primary" : enabled ? "border-border bg-background text-foreground hover:border-primary/40" : "border-border bg-secondary text-muted-foreground"}`}
+                            >
+                              <span className={`mr-2 inline-block h-2.5 w-2.5 rounded-full ${enabled ? "bg-emerald-400" : "bg-muted-foreground/40"}`} />{label}
+                            </button>
+                          )
+                        })}
                       </div>
                     </div>
                   </div>
