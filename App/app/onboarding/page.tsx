@@ -23,14 +23,14 @@ import { dynamicConfigured } from "@/lib/dynamic-config"
 
 const riskLevels = ["Conservative", "Moderate", "Aggressive"] as const
 const stablecoins = ["USDC", "EURC", "USDT", "CUSD", "CEUR", "CELO"] as const
-const ensParent = "counteragent.eth"
+const ensParent = "counteragents.eth"
 
 const onboardingSteps = [
   {
     id: "ens",
     label: "ENS",
     title: "Merchant identity",
-    description: "Reserve a counteragent.eth subname that mirrors public discovery config.",
+    description: "Reserve a counteragents.eth subname that mirrors public discovery config.",
     icon: Globe2,
   },
   {

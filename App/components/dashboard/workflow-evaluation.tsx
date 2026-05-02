@@ -93,7 +93,7 @@ export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }
     try {
       const response = await evaluateWorkflow({
         workflowId,
-        merchantEns: "dashboard.counteragent.eth",
+        merchantEns: "dashboard.counteragents.eth",
         walletAddress: address,
         chainId: chainId ?? 84532,
         fromToken,

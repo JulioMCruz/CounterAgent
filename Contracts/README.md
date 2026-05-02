@@ -3,7 +3,7 @@
 Foundry workspace for CounterAgent's on-chain components.
 
 - **Base / Base Sepolia**: merchant treasury registry.
-- **Ethereum Sepolia**: ENS subname provisioning for `counteragent.eth`.
+- **Ethereum Sepolia**: ENS subname provisioning for `counteragents.eth`.
 
 ## Layout
 
@@ -103,12 +103,12 @@ Add `--slow` if a sequencer hiccup causes nonce drift, and `-vvvv` for full trac
 
 ## Deploy `CounterAgentENSRegistrar`
 
-`CounterAgentENSRegistrar` is an upgradeable UUPS contract deployed on **Ethereum Sepolia** because `counteragent.eth` lives in ENS on Ethereum Sepolia.
+`CounterAgentENSRegistrar` is an upgradeable UUPS contract deployed on **Ethereum Sepolia** because `counteragents.eth` lives in ENS on Ethereum Sepolia.
 
 The registrar provisions merchant subnames such as:
 
 ```text
-<merchant>.counteragent.eth
+<merchant>.counteragents.eth
 ```
 
 It sets the resolver, assigns the subname owner, and writes CounterAgent text records.
@@ -123,7 +123,7 @@ forge script script/DeployCounterAgentENSRegistrar.s.sol:DeployCounterAgentENSRe
   -vvvv
 ```
 
-After deploy, authorize the registrar by transferring `counteragent.eth` ownership in the ENS Registry to the registrar proxy:
+After deploy, authorize the registrar by transferring `counteragents.eth` ownership in the ENS Registry to the registrar proxy:
 
 ```bash
 export ENS_REGISTRAR_ADDRESS=<REGISTRAR_PROXY_ADDRESS>
@@ -161,7 +161,7 @@ No admin and no upgrade path. Acts as an on-chain mirror/fallback to the ENS tex
 
 ### `CounterAgentENSRegistrar`
 
-Upgradeable ENS provisioning contract for merchant subnames under `counteragent.eth`.
+Upgradeable ENS provisioning contract for merchant subnames under `counteragents.eth`.
 
 Responsibilities:
 
@@ -176,4 +176,4 @@ Recommended runtime split:
 
 - owner: admin/upgrade authority
 - provisioner: agent service wallet allowed to create merchant subnames
-- merchant: connected user wallet that receives ownership of `<merchant>.counteragent.eth`
+- merchant: connected user wallet that receives ownership of `<merchant>.counteragents.eth`
