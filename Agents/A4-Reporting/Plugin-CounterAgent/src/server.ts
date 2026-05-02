@@ -42,6 +42,8 @@ const zeroGRpcUrl = process.env.ZERO_G_RPC_URL ?? 'https://evmrpc-testnet.0g.ai'
 const zeroGIndexerRpcUrl = process.env.ZERO_G_INDEXER_RPC_URL ?? 'https://indexer-storage-testnet-turbo.0g.ai';
 const a4PrivateKey = process.env.A4_REPORTING_PRIVATE_KEY as Hex | undefined;
 const a4PrivateKeyConfigured = Boolean(a4PrivateKey);
+const telegramAlertsUrl = process.env.TELEGRAM_ALERTS_URL?.replace(/\/$/, '');
+const telegramAlertsEnabled = process.env.TELEGRAM_ALERTS_ENABLED !== 'false';
 
 const app = Fastify({ logger: true });
 
@@ -79,6 +81,14 @@ type CanonicalReport = z.infer<typeof reportSchema> & {
   reportId: string;
   schemaVersion: 1;
   createdAt: string;
+};
+
+type TelegramAlertResult = {
+  ok: boolean;
+  skipped?: boolean;
+  reason?: string;
+  error?: string;
+  messageId?: number;
 };
 
 const stableStringify = (value: unknown): string => {
@@ -147,6 +157,79 @@ async function publishReport(report: CanonicalReport) {
   return publishLocal(report);
 }
 
+function metadataRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function stringFrom(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function alertKind(report: CanonicalReport): 'swap_executed' | 'hold' | 'anomaly' | 'halt' {
+  const decision = report.decision.toLowerCase();
+  const metadata = metadataRecord(report.metadata);
+  const execution = metadataRecord(metadata.execution);
+  const status = stringFrom(execution.status)?.toLowerCase() ?? '';
+
+  if (decision.includes('hold')) return 'hold';
+  if (decision.includes('halt') || decision.includes('blocked') || status.includes('blocked')) return 'halt';
+  if (decision.includes('convert') || status.includes('executed') || status.includes('submitted') || status.includes('dry-run')) return 'swap_executed';
+  return 'anomaly';
+}
+
+function telegramChatIdFrom(report: CanonicalReport) {
+  const metadata = metadataRecord(report.metadata);
+  const notification = metadataRecord(metadata.notification);
+  const ens = metadataRecord(metadata.ens);
+  const records = metadataRecord(ens.records);
+
+  return stringFrom(notification.telegramChatId)
+    ?? stringFrom(notification.telegram_chat_id)
+    ?? stringFrom(metadata.telegramChatId)
+    ?? stringFrom(records['counteragent.telegram_chat_id']);
+}
+
+async function sendTelegramAlert(report: CanonicalReport, published: Awaited<ReturnType<typeof publishReport>>): Promise<TelegramAlertResult> {
+  if (!telegramAlertsEnabled) return { ok: true, skipped: true, reason: 'telegram_alerts_disabled' };
+  if (!telegramAlertsUrl) return { ok: true, skipped: true, reason: 'telegram_alerts_not_configured' };
+
+  const chatId = telegramChatIdFrom(report);
+  if (!chatId) return { ok: true, skipped: true, reason: 'telegram_chat_id_missing' };
+
+  const metadata = metadataRecord(report.metadata);
+  const execution = metadataRecord(metadata.execution);
+  const quote = metadataRecord(metadata.quote);
+  const quoteData = metadataRecord(quote.quote);
+
+  try {
+    const response = await fetch(`${telegramAlertsUrl}/telegram/send`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        chatId,
+        kind: alertKind(report),
+        merchantEns: report.merchantEns,
+        merchantWallet: report.merchantWallet,
+        decision: report.decision,
+        amount: stringFrom(metadata.amount) ?? stringFrom(quoteData.amountIn),
+        fromToken: stringFrom(metadata.fromToken),
+        toToken: stringFrom(metadata.toToken),
+        txHash: report.transactionHash ?? stringFrom(execution.transactionHash),
+        reportId: report.reportId,
+        storageUri: published.storageUri,
+        summary: report.summary
+      })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) {
+      return { ok: false, error: typeof payload.error === 'string' ? payload.error : `telegram_alert_failed_${response.status}`, reason: payload.description };
+    }
+    return payload as TelegramAlertResult;
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'telegram_alert_failed' };
+  }
+}
+
 app.get('/report/recent', async (request, reply) => {
   const merchant = typeof (request.query as { merchant?: unknown }).merchant === 'string'
     ? (request.query as { merchant: string }).merchant
@@ -175,6 +258,10 @@ app.get('/healthz', async () => ({
     indexerConfigured: Boolean(zeroGIndexerRpcUrl),
     indexerUrl: zeroGIndexerRpcUrl,
     signerConfigured: a4PrivateKeyConfigured
+  },
+  telegramAlerts: {
+    enabled: telegramAlertsEnabled,
+    configured: Boolean(telegramAlertsUrl)
   }
 }));
 
@@ -187,6 +274,7 @@ async function buildAndPublishReport(data: z.infer<typeof reportSchema>) {
   };
 
   const published = await publishReport(report);
+  const telegramAlert = await sendTelegramAlert(report, published);
   pushRecentReport({
     agent: 'A4',
     reportId: report.reportId,
@@ -204,7 +292,9 @@ async function buildAndPublishReport(data: z.infer<typeof reportSchema>) {
   return {
     ok: true,
     reportId: report.reportId,
-    ...published
+    ...published,
+    telegramAlert,
+    telegramWarning: telegramAlert.ok ? undefined : telegramAlert.error ?? 'telegram_alert_failed'
   };
 }
 

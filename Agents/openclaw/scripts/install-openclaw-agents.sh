@@ -46,6 +46,7 @@ copy_plugin "$REPO_ROOT/Agents/A1-Monitor/Plugin-ENS-MerchantConfig" "$INSTALL_D
 copy_plugin "$REPO_ROOT/Agents/A2-Decision/Plugin-CounterAgent-DecisionScoring" "$INSTALL_DIR/agents/a2-decision/Plugin-CounterAgent-DecisionScoring"
 copy_plugin "$REPO_ROOT/Agents/A3-Execution/Plugin-Uniswap-SwapExecution" "$INSTALL_DIR/agents/a3-execution/Plugin-Uniswap-SwapExecution"
 copy_plugin "$REPO_ROOT/Agents/A4-Reporting/Plugin-CounterAgent" "$INSTALL_DIR/agents/a4-reporting/Plugin-CounterAgent"
+copy_plugin "$REPO_ROOT/Agents/A4-Reporting/Plugin-Telegram-Alerts" "$INSTALL_DIR/agents/a4-reporting/Plugin-Telegram-Alerts"
 
 for agent in a0-orchestrator a1-monitor a2-decision a3-execution a4-reporting; do
   mkdir -p "$INSTALL_DIR/agents/$agent/workspace/memory"
