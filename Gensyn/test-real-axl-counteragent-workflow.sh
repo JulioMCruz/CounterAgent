@@ -68,8 +68,10 @@ post_json() {
 }
 
 require_var AXL_A0_URL
+require_var AXL_PEER_A1
 require_var AXL_PEER_A2
 require_var AXL_PEER_A3
+require_var AXL_PEER_A4
 
 AXL_A0_URL="$(trim_slash "$AXL_A0_URL")"
 REQUIRE_HTTPS_AXL="${REQUIRE_HTTPS_AXL:-true}"
@@ -78,10 +80,14 @@ if [[ "$REQUIRE_HTTPS_AXL" == "true" ]]; then
   is_https_url "$AXL_A0_URL" || fail "AXL_A0_URL must be HTTPS for real AXL tests"
 fi
 A0_PORT="${A0_PORT:-8787}"
+A1_PORT="${A1_PORT:-8788}"
 A2_PORT="${A2_PORT:-8790}"
 A3_PORT="${A3_PORT:-8791}"
+A4_PORT="${A4_PORT:-8789}"
+GENSYN_AXL_SERVICE_A1="${GENSYN_AXL_SERVICE_A1:-counteragent-monitor}"
 GENSYN_AXL_SERVICE_A2="${GENSYN_AXL_SERVICE_A2:-counteragent-decision}"
 GENSYN_AXL_SERVICE_A3="${GENSYN_AXL_SERVICE_A3:-counteragent-execution}"
+GENSYN_AXL_SERVICE_A4="${GENSYN_AXL_SERVICE_A4:-counteragent-reporting}"
 
 echo "checking AXL node API"
 curl -fsS "$AXL_A0_URL/topology" | python3 -m json.tool >/dev/null
@@ -95,11 +101,17 @@ cat > "$LOG_DIR/mcp-probe.json" <<JSON
 }
 JSON
 
+echo "checking AXL MCP route to A1"
+post_json "$AXL_A0_URL/mcp/$AXL_PEER_A1/$GENSYN_AXL_SERVICE_A1" "$LOG_DIR/mcp-probe.json" | python3 -m json.tool >/dev/null
+
 echo "checking AXL MCP route to A2"
 post_json "$AXL_A0_URL/mcp/$AXL_PEER_A2/$GENSYN_AXL_SERVICE_A2" "$LOG_DIR/mcp-probe.json" | python3 -m json.tool >/dev/null
 
 echo "checking AXL MCP route to A3"
 post_json "$AXL_A0_URL/mcp/$AXL_PEER_A3/$GENSYN_AXL_SERVICE_A3" "$LOG_DIR/mcp-probe.json" | python3 -m json.tool >/dev/null
+
+echo "checking AXL MCP route to A4"
+post_json "$AXL_A0_URL/mcp/$AXL_PEER_A4/$GENSYN_AXL_SERVICE_A4" "$LOG_DIR/mcp-probe.json" | python3 -m json.tool >/dev/null
 
 start_service a2 "$ROOT_DIR/Agents/A2-Decision/Plugin-CounterAgent-DecisionScoring" \
   PORT="$A2_PORT"
@@ -115,17 +127,21 @@ start_service a0 "$ROOT_DIR/Agents/A0-Orchestrator/Plugin-CounterAgent" \
   DEFAULT_CHAIN_ID=84532 \
   BASE_RPC_URL=https://sepolia.base.org \
   MERCHANT_REGISTRY_ADDRESS=0x9857d987F57607b1e6431Ab94D26a866870b7a3D \
-  MONITOR_AGENT_URL= \
-  REPORTING_AGENT_URL= \
+  MONITOR_AGENT_URL=http://127.0.0.1:"$A1_PORT" \
+  REPORTING_AGENT_URL=http://127.0.0.1:"$A4_PORT" \
   DECISION_AGENT_URL=http://127.0.0.1:"$A2_PORT" \
   EXECUTION_AGENT_URL=http://127.0.0.1:"$A3_PORT" \
   GENSYN_AXL_MESSAGING_URL= \
   GENSYN_AXL_MODE=transport \
   GENSYN_AXL_NODE_URL="$AXL_A0_URL" \
+  GENSYN_AXL_PEER_A1="$AXL_PEER_A1" \
   GENSYN_AXL_PEER_A2="$AXL_PEER_A2" \
   GENSYN_AXL_PEER_A3="$AXL_PEER_A3" \
+  GENSYN_AXL_PEER_A4="$AXL_PEER_A4" \
+  GENSYN_AXL_SERVICE_A1="$GENSYN_AXL_SERVICE_A1" \
   GENSYN_AXL_SERVICE_A2="$GENSYN_AXL_SERVICE_A2" \
   GENSYN_AXL_SERVICE_A3="$GENSYN_AXL_SERVICE_A3" \
+  GENSYN_AXL_SERVICE_A4="$GENSYN_AXL_SERVICE_A4" \
   GENSYN_AXL_FALLBACK_HTTP=false \
   GENSYN_AXL_TRACE_LIMIT=100 \
   ENS_PARENT_NAME=counteragents.eth
@@ -152,10 +168,10 @@ JSON
 
 echo "running CounterAgent workflow through real AXL MCP transport"
 post_json "http://127.0.0.1:$A0_PORT/workflow/evaluate" "$LOG_DIR/workflow.json" \
-  | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("decision",{}).get("decision",{}).get("action") == "CONVERT"; assert data.get("execution",{}).get("status") in {"dry-run","fallback-dry-run"}; print("workflow ok")'
+  | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("decision",{}).get("decision",{}).get("action") == "CONVERT"; assert data.get("execution",{}).get("status") in {"dry-run","fallback-dry-run"}; assert data.get("reportWarning") in {None, "report_publish_failed"}; print("workflow ok")'
 
 echo "checking A0 AXL status"
 curl -fsS "http://127.0.0.1:$A0_PORT/axl/status" \
-  | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data.get("mode") == "transport"; assert data.get("fallbackToHttp") is False; assert data.get("peers",{}).get("A2") is True; assert data.get("peers",{}).get("A3") is True; print("axl status ok")'
+  | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data.get("mode") == "transport"; assert data.get("fallbackToHttp") is False; peers=data.get("peers",{}); assert all(peers.get(role) is True for role in ("A1","A2","A3","A4")); messages=data.get("recentMessages",[]); targets={m.get("toAgent") for m in messages}; assert "A1-Monitor" in targets and "A2-Decision" in targets and "A3-Uniswap-SwapExecution" in targets and "A4-Reporting" in targets; print("axl status ok")'
 
 echo "CounterAgent real AXL workflow test passed: $WORKFLOW_ID"

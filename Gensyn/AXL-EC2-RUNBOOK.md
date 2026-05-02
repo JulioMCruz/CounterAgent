@@ -12,7 +12,7 @@ CounterAgent runs one dedicated EC2 node per agent:
 - A3 Execution EC2: app + official Gensyn AXL node + AXL transport bridge + proxy
 - A4 Reporting EC2: app + official Gensyn AXL node + AXL transport bridge + proxy
 
-Each node has its own stable public endpoint and its own AXL public key. The public DNS names point directly to the matching EC2 Elastic IP.
+Each node has its own stable public endpoint and its own AXL public key. The public app domain `counteragents.cc` is served by Netlify over HTTPS; the agent subdomains expose the matching EC2 nodes.
 
 ## Public endpoints
 
@@ -30,12 +30,13 @@ Each endpoint exposes:
 - `/axl/topology` for official AXL topology
 - `/axl/send` for AXL send
 - `/axl/recv` for AXL receive
+- `/axl/mcp/:peerId/:service` for AXL MCP calls between agent services
 
 ## Network requirements
 
 The EC2 security group must allow:
 
-- TCP `80` from the internet for public HTTP/proxy traffic
+- TCP `80`/`443` from the internet for public HTTP/HTTPS proxy traffic
 - TCP `9001` from the internet for AXL peer connections
 
 The AXL HTTP API stays local on each EC2 node and is reached through the local bridge/proxy.
@@ -66,12 +67,16 @@ Peer identity is the official AXL public key reported by `/axl/topology`, not th
 Run the real P2P test:
 
 ```bash
-AXL_A0_URL=http://orchestrator.counteragents.cc/axl \
-AXL_A2_URL=http://decision.counteragents.cc/axl \
-AXL_A3_URL=http://execution.counteragents.cc/axl \
+AXL_A0_URL=https://orchestrator.counteragents.cc/axl \
+AXL_A1_URL=https://monitor.counteragents.cc/axl \
+AXL_A2_URL=https://decision.counteragents.cc/axl \
+AXL_A3_URL=https://execution.counteragents.cc/axl \
+AXL_A4_URL=https://reporting.counteragents.cc/axl \
+AXL_PEER_A1=<A1_PUBLIC_KEY> \
 AXL_PEER_A2=<A2_PUBLIC_KEY> \
 AXL_PEER_A3=<A3_PUBLIC_KEY> \
-REQUIRE_HTTPS_AXL=false \
+AXL_PEER_A4=<A4_PUBLIC_KEY> \
+REQUIRE_HTTPS_AXL=true \
 Gensyn/test-real-axl-p2p.sh
 ```
 
@@ -84,13 +89,17 @@ real AXL P2P send/recv passed
 Run the CounterAgent workflow test over real AXL transport:
 
 ```bash
-AXL_A0_URL=http://orchestrator.counteragents.cc/axl \
-A0_URL=http://orchestrator.counteragents.cc \
-AXL_A2_URL=http://decision.counteragents.cc/axl \
-AXL_A3_URL=http://execution.counteragents.cc/axl \
+AXL_A0_URL=https://orchestrator.counteragents.cc/axl \
+A0_URL=https://orchestrator.counteragents.cc \
+AXL_A1_URL=https://monitor.counteragents.cc/axl \
+AXL_A2_URL=https://decision.counteragents.cc/axl \
+AXL_A3_URL=https://execution.counteragents.cc/axl \
+AXL_A4_URL=https://reporting.counteragents.cc/axl \
+AXL_PEER_A1=<A1_PUBLIC_KEY> \
 AXL_PEER_A2=<A2_PUBLIC_KEY> \
 AXL_PEER_A3=<A3_PUBLIC_KEY> \
-REQUIRE_HTTPS_AXL=false \
+AXL_PEER_A4=<A4_PUBLIC_KEY> \
+REQUIRE_HTTPS_AXL=true \
 Gensyn/test-real-axl-counteragent-workflow.sh
 ```
 
@@ -109,9 +118,8 @@ Validated checks:
 - all five `/healthz` endpoints return live status
 - all five `/axl/topology` endpoints return distinct official AXL public keys
 - AXL peers are reported as up
-- A0 to A2 real AXL send/recv passes
-- A0 to A3 real AXL send/recv passes
-- CounterAgent workflow through real AXL MCP transport passes
+- A0 to A1/A2/A3/A4 real AXL send/recv passes
+- CounterAgent workflow through real AXL MCP transport passes across A1 monitor, A2 decision, A3 execution, and A4 reporting
 
 ## Operational notes
 

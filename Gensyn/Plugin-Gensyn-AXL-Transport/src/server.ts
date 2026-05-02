@@ -59,6 +59,7 @@ const localPeerUrls: Record<string, string | undefined> = {
 };
 
 const mcpServiceUrls: Record<string, string | undefined> = {
+  'counteragent-monitor': process.env.AXL_SERVICE_A1_URL,
   'counteragent-decision': process.env.AXL_SERVICE_A2_URL,
   'counteragent-execution': process.env.AXL_SERVICE_A3_URL,
   'counteragent-reporting': process.env.AXL_SERVICE_A4_URL

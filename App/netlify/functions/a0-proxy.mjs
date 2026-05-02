@@ -3,7 +3,7 @@ const targetBaseUrl =
   process.env.A0_URL ||
   process.env.NEXT_PUBLIC_ORCHESTRATOR_URL ||
   process.env.NEXT_PUBLIC_A0_URL ||
-  'https://orchestrator.counteragent.perkos.xyz';
+  'https://orchestrator.counteragents.cc';
 
 const json = (statusCode, body) => ({
   statusCode,

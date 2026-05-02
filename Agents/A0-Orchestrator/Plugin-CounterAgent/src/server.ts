@@ -173,8 +173,10 @@ const axlClient = new AxlClient({
     A4: process.env.GENSYN_AXL_PEER_A4
   }
 });
+const axlMonitorService = process.env.GENSYN_AXL_SERVICE_A1 ?? 'counteragent-monitor';
 const axlDecisionService = process.env.GENSYN_AXL_SERVICE_A2 ?? 'counteragent-decision';
 const axlExecutionService = process.env.GENSYN_AXL_SERVICE_A3 ?? 'counteragent-execution';
+const axlReportingService = process.env.GENSYN_AXL_SERVICE_A4 ?? 'counteragent-reporting';
 const axlFallbackToHttp = process.env.GENSYN_AXL_FALLBACK_HTTP !== 'false';
 const ensParentName = process.env.ENS_PARENT_NAME ?? 'counteragents.eth';
 
@@ -395,8 +397,10 @@ app.get('/axl/status', async () => {
       A4: Boolean(axlClient.peers.A4)
     },
     services: {
+      monitor: axlMonitorService,
       decision: axlDecisionService,
-      execution: axlExecutionService
+      execution: axlExecutionService,
+      reporting: axlReportingService
     },
     fallbackToHttp: axlFallbackToHttp,
     topology,
@@ -579,10 +583,13 @@ async function publishOnboardingReport(input: {
 }) {
   if (!reportingAgentUrl) return null;
 
-  const response = await fetch(`${reportingAgentUrl.replace(/\/$/, '')}/reports/publish`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
+  return callWorkflowAgent({
+    agent: 'A4',
+    service: axlReportingService,
+    tool: 'publish_report',
+    httpUrl: `${reportingAgentUrl.replace(/\/$/, '')}/reports/publish`,
+    workflowId: input.onboardingId,
+    payload: {
       reportId: input.onboardingId.replace(/[^a-zA-Z0-9._:-]/g, '-').slice(0, 120),
       merchantEns: input.ensName,
       merchantWallet: input.walletAddress,
@@ -596,16 +603,8 @@ async function publishOnboardingReport(input: {
         preferredStablecoin: input.preferredStablecoin,
         ens: input.ens
       }
-    })
+    }
   });
-
-  const report = await response.json().catch(() => ({}));
-
-  if (!response.ok || !report.ok) {
-    throw new Error('report_publish_failed');
-  }
-
-  return report;
 }
 
 async function publishWorkflowReport(input: {
@@ -626,7 +625,13 @@ async function publishWorkflowReport(input: {
   const quoteRecord = input.quote as { quote?: { rate?: number } };
   const txHash = typeof executionRecord.transactionHash === 'string' ? executionRecord.transactionHash : undefined;
 
-  return postJson(`${reportingAgentUrl.replace(/\/$/, '')}/reports/publish`, {
+  return callWorkflowAgent({
+    agent: 'A4',
+    service: axlReportingService,
+    tool: 'publish_report',
+    httpUrl: `${reportingAgentUrl.replace(/\/$/, '')}/reports/publish`,
+    workflowId: input.workflowId,
+    payload: {
     reportId: input.workflowId.replace(/[^a-zA-Z0-9._:-]/g, '-').slice(0, 120),
     merchantEns: input.merchantEns,
     merchantWallet: input.walletAddress,
@@ -640,23 +645,16 @@ async function publishWorkflowReport(input: {
       decision: input.decision,
       execution: input.execution
     }
+    }
   });
 }
 
-async function lookupMerchantEns(walletAddress: string) {
+async function lookupMerchantEns(walletAddress: string, workflowId?: string) {
   if (!monitorAgentUrl) return null;
 
   try {
-    const response = await fetch(`${monitorAgentUrl.replace(/\/$/, '')}/ens/merchant/${walletAddress}`);
-    const payload = await response.json().catch(() => ({}));
-
-    if (!response.ok || payload.ok === false) {
-      app.log.info({ walletAddress, status: response.status, error: payload.error }, 'ENS merchant lookup unavailable');
-      return null;
-    }
-
-    return payload as {
-      ok: true;
+    const payload = await callWorkflowAgent<{
+      ok: boolean;
       name?: string;
       label?: string;
       node?: Hex;
@@ -667,7 +665,22 @@ async function lookupMerchantEns(walletAddress: string) {
       transactionHash?: Hex;
       blockNumber?: string;
       records?: Record<string, unknown>;
-    };
+      error?: string;
+    }>({
+      agent: 'A1',
+      service: axlMonitorService,
+      tool: 'lookup_merchant_config',
+      httpUrl: `${monitorAgentUrl.replace(/\/$/, '')}/ens/merchant/${walletAddress}`,
+      httpMethod: 'GET',
+      workflowId: workflowId ?? `merchant-lookup:${walletAddress.toLowerCase()}`,
+      payload: { walletAddress }
+    });
+
+    if (!payload.ok) {
+      app.log.info({ walletAddress, error: payload.error }, 'ENS merchant lookup unavailable');
+      return null;
+    }
+    return payload;
   } catch (error) {
     app.log.warn({ error, walletAddress }, 'ENS merchant lookup failed');
     return null;
@@ -1190,15 +1203,16 @@ app.get('/dashboard/state', async (request, reply) => {
 });
 
 async function callWorkflowAgent<T>(input: {
-  agent: 'A2' | 'A3';
+  agent: 'A1' | 'A2' | 'A3' | 'A4';
   service: string;
   tool: string;
   payload: Record<string, unknown>;
   httpUrl: string;
+  httpMethod?: 'GET' | 'POST';
   workflowId: string;
 }) {
   if (axlClient.mode === 'transport') {
-    const peerId = input.agent === 'A2' ? axlClient.peers.A2 : axlClient.peers.A3;
+    const peerId = axlClient.peers[input.agent];
     const result = await axlClient.callMcp<T>({
       peerId,
       service: input.service,
@@ -1213,6 +1227,10 @@ async function callWorkflowAgent<T>(input: {
 
     app.log.warn({ result, agent: input.agent, tool: input.tool }, 'AXL transport unavailable for workflow agent');
     if (!axlFallbackToHttp) throw new Error(result.error ?? 'axl_transport_failed');
+  }
+
+  if (input.httpMethod === 'GET') {
+    return getJson<T>(input.httpUrl);
   }
 
   return postJson<T>(input.httpUrl, input.payload);
@@ -1244,9 +1262,37 @@ app.post('/workflow/evaluate', async (request, reply) => {
   const workflowId = workflow.idempotencyKey
     ?? workflow.workflowId
     ?? `${workflow.chainId ?? defaultChainId}:${workflow.walletAddress.toLowerCase()}:${Date.now()}`;
-  const merchantEns = workflow.merchantEns ?? `${workflow.walletAddress.toLowerCase()}.${ensParentName}`;
+  let merchantEns = workflow.merchantEns ?? `${workflow.walletAddress.toLowerCase()}.${ensParentName}`;
+  let merchantConfig: unknown = null;
 
   try {
+    await emitAxlMessage({
+      workflowId,
+      fromAgent: 'A0-Orchestrator',
+      toAgent: 'A1-Monitor',
+      messageType: 'merchant-config-request',
+      payload: { walletAddress: workflow.walletAddress }
+    });
+
+    merchantConfig = await lookupMerchantEns(workflow.walletAddress, workflowId);
+    const loadedMerchantEns = merchantConfig && typeof merchantConfig === 'object' && 'name' in merchantConfig
+      ? (merchantConfig as { name?: unknown }).name
+      : undefined;
+    if (typeof loadedMerchantEns === 'string' && loadedMerchantEns) {
+      merchantEns = loadedMerchantEns;
+    }
+
+    await emitAxlMessage({
+      workflowId,
+      fromAgent: 'A1-Monitor',
+      toAgent: 'A0-Orchestrator',
+      messageType: 'merchant-config-response',
+      payload: {
+        found: Boolean(merchantConfig),
+        merchantEns
+      }
+    });
+
     await emitAxlMessage({
       workflowId,
       fromAgent: 'A0-Orchestrator',
@@ -1406,6 +1452,18 @@ app.post('/workflow/evaluate', async (request, reply) => {
     let reportWarning: string | undefined;
 
     try {
+      await emitAxlMessage({
+        workflowId,
+        fromAgent: 'A0-Orchestrator',
+        toAgent: 'A4-Reporting',
+        messageType: 'report-request',
+        payload: {
+          merchantEns,
+          decision: decision.decision.action,
+          executionStatus: execution.status
+        }
+      });
+
       report = await publishWorkflowReport({
         workflowId,
         merchantEns,
@@ -1416,6 +1474,14 @@ app.post('/workflow/evaluate', async (request, reply) => {
         quote,
         decision,
         execution
+      });
+
+      await emitAxlMessage({
+        workflowId,
+        fromAgent: 'A4-Reporting',
+        toAgent: 'A0-Orchestrator',
+        messageType: 'report-response',
+        payload: { report }
       });
     } catch (error) {
       request.log.error({ error }, 'A4 workflow report publish failed');
@@ -1429,6 +1495,7 @@ app.post('/workflow/evaluate', async (request, reply) => {
       quote,
       decision,
       execution,
+      merchantConfig,
       report,
       reportWarning
     });

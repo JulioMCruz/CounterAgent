@@ -87,6 +87,17 @@ const provisionSchema = z.object({
   registryAddress: z.string().max(120).optional()
 });
 
+const jsonRpcSchema = z.object({
+  jsonrpc: z.string().optional(),
+  id: z.unknown().optional(),
+  method: z.string().min(1),
+  params: z.record(z.unknown()).optional().default({})
+});
+
+const merchantLookupSchema = z.object({
+  walletAddress: z.string().refine(isAddress, 'Invalid wallet address')
+});
+
 const port = Number(process.env.PORT ?? 8788);
 const corsOrigins = (process.env.CORS_ORIGIN ?? 'https://counteragent.netlify.app')
   .split(',')
@@ -298,7 +309,15 @@ const uploadDirectlyToPinata = async (buffer: Buffer, file: { mimetype: string; 
   } satisfies IpfsUploadResult;
 };
 
-app.get('/healthz', async () => ({ ok: true, status: 'live', role: 'ens-monitor' }));
+app.get('/healthz', async () => ({
+  ok: true,
+  status: 'live',
+  role: 'ens-monitor',
+  mcp: {
+    service: 'counteragent-monitor',
+    tools: ['lookup_merchant_config']
+  }
+}));
 
 app.get('/monitor/recent', async (request, reply) => {
   const merchant = typeof (request.query as { merchant?: unknown }).merchant === 'string'
@@ -313,6 +332,101 @@ app.get('/monitor/recent', async (request, reply) => {
   return reply.send({ ok: true, merchant, monitor: (recentMonitorEvents.get(merchantKey(merchant)) ?? []).slice(0, limit) });
 });
 
+async function lookupMerchantConfig(wallet: string) {
+  const registrar = requireRegistrar();
+  const latestBlock = await publicClient.getBlockNumber();
+  const fromBlock = ensLookupFromBlock ?? (latestBlock > ensLookupBlockWindow ? latestBlock - ensLookupBlockWindow : 0n);
+  const events = await publicClient.getContractEvents({
+    address: registrar,
+    abi: registrarAbi,
+    eventName: 'MerchantSubnameProvisioned',
+    args: { merchant: wallet as Address },
+    fromBlock,
+    toBlock: latestBlock
+  });
+
+  const latest = events.sort((a, b) => {
+    if (a.blockNumber === b.blockNumber) return Number((b.logIndex ?? 0) - (a.logIndex ?? 0));
+    return a.blockNumber > b.blockNumber ? -1 : 1;
+  })[0];
+
+  if (!latest) {
+    pushRecentMonitorEvent({
+      agent: 'A1',
+      type: 'merchant-lookup',
+      merchant: wallet,
+      status: 'not-found',
+      summary: 'Monitor checked ENS merchant config; no CounterAgent subname found yet.',
+      timestamp: new Date().toISOString()
+    });
+    return { ok: false, error: 'ens_merchant_not_found', merchantWallet: wallet };
+  }
+
+  const args = latest.args;
+  if (!args.node || !args.name || !args.label || !args.merchant || args.fxThresholdBps === undefined) {
+    throw new Error('ens_event_missing_fields');
+  }
+
+  const node = args.node;
+  const resolver = await publicClient.readContract({
+    address: ensRegistryAddress,
+    abi: ensRegistryAbi,
+    functionName: 'resolver',
+    args: [node]
+  });
+  const owner = await publicClient.readContract({
+    address: ensRegistryAddress,
+    abi: ensRegistryAbi,
+    functionName: 'owner',
+    args: [node]
+  });
+
+  let resolvedAddress: Address = zeroAddress;
+  let records: Record<string, string> = {};
+  if (resolver !== zeroAddress) {
+    resolvedAddress = await publicClient.readContract({
+      address: resolver,
+      abi: publicResolverAbi,
+      functionName: 'addr',
+      args: [node]
+    });
+    records = await readCounterAgentEnsRecords(resolver, node);
+  }
+
+  pushRecentMonitorEvent({
+    agent: 'A1',
+    type: 'ens-config',
+    merchant: wallet,
+    ensName: args.name,
+    status: 'loaded',
+    fxThresholdBps: records['counteragent.fx_threshold_bps'] || args.fxThresholdBps.toString(),
+    riskTolerance: records['counteragent.risk_tolerance'] || args.riskTolerance,
+    preferredStablecoin: records['counteragent.preferred_stablecoin'] || args.preferredStablecoin,
+    summary: `Loaded ENS treasury config for ${args.name}.`,
+    timestamp: new Date().toISOString()
+  });
+
+  return {
+    ok: true,
+    name: args.name,
+    label: args.label,
+    node,
+    owner,
+    resolver,
+    address: resolvedAddress,
+    merchantWallet: args.merchant,
+    transactionHash: latest.transactionHash,
+    blockNumber: latest.blockNumber.toString(),
+    records: {
+      ...records,
+      fxThresholdBps: records['counteragent.fx_threshold_bps'] || args.fxThresholdBps.toString(),
+      riskTolerance: records['counteragent.risk_tolerance'] || args.riskTolerance,
+      preferredStablecoin: records['counteragent.preferred_stablecoin'] || args.preferredStablecoin,
+      registryAddress: records['counteragent.registry'] || args.registryAddress
+    }
+  };
+}
+
 app.get('/ens/merchant/:wallet', async (request, reply) => {
   const { wallet } = request.params as { wallet: string };
 
@@ -321,101 +435,57 @@ app.get('/ens/merchant/:wallet', async (request, reply) => {
   }
 
   try {
-    const registrar = requireRegistrar();
-    const latestBlock = await publicClient.getBlockNumber();
-    const fromBlock = ensLookupFromBlock ?? (latestBlock > ensLookupBlockWindow ? latestBlock - ensLookupBlockWindow : 0n);
-    const events = await publicClient.getContractEvents({
-      address: registrar,
-      abi: registrarAbi,
-      eventName: 'MerchantSubnameProvisioned',
-      args: { merchant: wallet as Address },
-      fromBlock,
-      toBlock: latestBlock
-    });
-
-    const latest = events.sort((a, b) => {
-      if (a.blockNumber === b.blockNumber) return Number((b.logIndex ?? 0) - (a.logIndex ?? 0));
-      return a.blockNumber > b.blockNumber ? -1 : 1;
-    })[0];
-
-    if (!latest) {
-      pushRecentMonitorEvent({
-        agent: 'A1',
-        type: 'merchant-lookup',
-        merchant: wallet,
-        status: 'not-found',
-        summary: 'Monitor checked ENS merchant config; no CounterAgent subname found yet.',
-        timestamp: new Date().toISOString()
-      });
+    const result = await lookupMerchantConfig(wallet);
+    if (!result.ok) {
       return reply.code(404).send({ ok: false, error: 'ens_merchant_not_found', merchantWallet: wallet });
     }
-
-    const args = latest.args;
-    if (!args.node || !args.name || !args.label || !args.merchant || args.fxThresholdBps === undefined) {
-      throw new Error('ens_event_missing_fields');
-    }
-
-    const node = args.node;
-    const resolver = await publicClient.readContract({
-      address: ensRegistryAddress,
-      abi: ensRegistryAbi,
-      functionName: 'resolver',
-      args: [node]
-    });
-    const owner = await publicClient.readContract({
-      address: ensRegistryAddress,
-      abi: ensRegistryAbi,
-      functionName: 'owner',
-      args: [node]
-    });
-
-    let resolvedAddress: Address = zeroAddress;
-    let records: Record<string, string> = {};
-    if (resolver !== zeroAddress) {
-      resolvedAddress = await publicClient.readContract({
-        address: resolver,
-        abi: publicResolverAbi,
-        functionName: 'addr',
-        args: [node]
-      });
-      records = await readCounterAgentEnsRecords(resolver, node);
-    }
-
-    pushRecentMonitorEvent({
-      agent: 'A1',
-      type: 'ens-config',
-      merchant: wallet,
-      ensName: args.name,
-      status: 'loaded',
-      fxThresholdBps: records['counteragent.fx_threshold_bps'] || args.fxThresholdBps.toString(),
-      riskTolerance: records['counteragent.risk_tolerance'] || args.riskTolerance,
-      preferredStablecoin: records['counteragent.preferred_stablecoin'] || args.preferredStablecoin,
-      summary: `Loaded ENS treasury config for ${args.name}.`,
-      timestamp: new Date().toISOString()
-    });
-
-    return reply.send({
-      ok: true,
-      name: args.name,
-      label: args.label,
-      node,
-      owner,
-      resolver,
-      address: resolvedAddress,
-      merchantWallet: args.merchant,
-      transactionHash: latest.transactionHash,
-      blockNumber: latest.blockNumber.toString(),
-      records: {
-        ...records,
-        fxThresholdBps: records['counteragent.fx_threshold_bps'] || args.fxThresholdBps.toString(),
-        riskTolerance: records['counteragent.risk_tolerance'] || args.riskTolerance,
-        preferredStablecoin: records['counteragent.preferred_stablecoin'] || args.preferredStablecoin,
-        registryAddress: records['counteragent.registry'] || args.registryAddress
-      }
-    });
+    return reply.send(result);
   } catch (error) {
     request.log.error({ error, wallet }, 'ENS merchant lookup failed');
     return reply.code(502).send({ ok: false, error: 'ens_merchant_lookup_failed' });
+  }
+});
+
+app.post('/mcp', async (request, reply) => {
+  const parsed = jsonRpcSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.code(400).send({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'invalid_request' } });
+  }
+
+  if (parsed.data.method === 'tools/list') {
+    return reply.send({
+      jsonrpc: '2.0',
+      id: parsed.data.id,
+      result: {
+        tools: [{ name: 'lookup_merchant_config', description: 'Load CounterAgent merchant ENS treasury configuration.' }]
+      }
+    });
+  }
+
+  if (parsed.data.method !== 'tools/call') {
+    return reply.send({ jsonrpc: '2.0', id: parsed.data.id, error: { code: -32601, message: 'method_not_found' } });
+  }
+
+  const name = typeof parsed.data.params.name === 'string' ? parsed.data.params.name : '';
+  if (name !== 'lookup_merchant_config') {
+    return reply.send({ jsonrpc: '2.0', id: parsed.data.id, error: { code: -32601, message: 'tool_not_found' } });
+  }
+
+  const args = merchantLookupSchema.safeParse(parsed.data.params.arguments ?? {});
+  if (!args.success) {
+    return reply.send({ jsonrpc: '2.0', id: parsed.data.id, error: { code: -32602, message: 'invalid_tool_arguments' } });
+  }
+
+  try {
+    const result = await lookupMerchantConfig(args.data.walletAddress);
+    return reply.send({
+      jsonrpc: '2.0',
+      id: parsed.data.id,
+      result: { content: [{ type: 'text', text: JSON.stringify(result) }] }
+    });
+  } catch (error) {
+    request.log.error({ error }, 'A1 MCP lookup failed');
+    return reply.send({ jsonrpc: '2.0', id: parsed.data.id, error: { code: -32001, message: 'merchant_lookup_failed' } });
   }
 });
 
