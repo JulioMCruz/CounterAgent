@@ -73,7 +73,7 @@ type ConfigRow = {
 }
 
 const riskLabels = ["Conservative", "Moderate", "Aggressive"] as const
-const stablecoinSymbols = ["USDC", "EURC", "USDT"] as const
+const stablecoinSymbols = ["USDC", "EURC", "USDT", "CUSD", "CEUR", "CELO"] as const
 const ensChain = sepolia
 
 const publicResolverAbi = [

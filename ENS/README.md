@@ -27,5 +27,5 @@ bash ENS/test-ens-records-local.sh
 Run the full local workflow gate:
 
 ```bash
-bash tests/test-counteragent-all.sh
+bash Tests/test-counteragent-all.sh
 ```

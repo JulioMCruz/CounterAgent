@@ -10,10 +10,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
-type TokenSymbol = "USDC" | "EURC" | "USDT"
+type TokenSymbol = "USDC" | "EURC" | "USDT" | "CUSD" | "CEUR" | "CELO"
 type RiskTolerance = "conservative" | "moderate" | "aggressive"
 
-const tokenOptions: TokenSymbol[] = ["USDC", "EURC", "USDT"]
+const tokenOptions: TokenSymbol[] = ["USDC", "EURC", "USDT", "CUSD", "CEUR", "CELO"]
 
 function formatRate(rate?: number) {
   if (!rate) return "—"
@@ -23,6 +23,11 @@ function formatRate(rate?: number) {
 function formatConfidence(confidence?: number) {
   if (typeof confidence !== "number") return "—"
   return `${Math.round(confidence)}%`
+}
+
+function formatBps(value?: number) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—"
+  return `${Math.round(value)} bps`
 }
 
 function shortHash(value?: string | null) {
@@ -119,6 +124,12 @@ export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }
   const quoteProvider = quote && "provider" in quote ? String(quote.provider) : undefined
   const fallbackReason = quote && "fallbackReason" in quote ? String(quote.fallbackReason) : undefined
   const estimatedAmountOut = quote && "estimatedAmountOut" in quote ? String(quote.estimatedAmountOut) : undefined
+  const routeDiagnostics = quote?.routeDiagnostics
+  const approvalStatus = routeDiagnostics?.approval?.error
+    ? "Check failed"
+    : routeDiagnostics?.approval?.required
+      ? routeDiagnostics.approval.calldataReady ? "Approval ready" : "Approval needed"
+      : "No approval needed"
 
   return (
     <Card className="border-primary/20 bg-primary/5">
@@ -204,6 +215,43 @@ export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }
               Dry-run completed: no wallet signature was requested and no funds moved. {decision?.action === "HOLD" ? "Execution was skipped because the Decision Agent chose HOLD." : "Execution was simulated because the Decision Agent chose CONVERT."}
               {decision?.reason ? ` Reason: ${decision.reason}` : ""}
             </p>
+            {routeDiagnostics && (
+              <div className="rounded-xl border border-primary/15 bg-background/80 p-4">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Uniswap Route Intelligence</p>
+                    <p className="mt-1 text-sm font-semibold text-card-foreground">
+                      {routeDiagnostics.routeText ?? `${fromToken} → ${toToken}`}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                    {routeDiagnostics.source ?? quoteProvider ?? "route"}
+                  </span>
+                </div>
+                <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="rounded-lg bg-muted/40 p-2">
+                    <p className="text-muted-foreground">Routing</p>
+                    <p className="font-semibold text-card-foreground">{routeDiagnostics.routing ?? "—"}</p>
+                    <p className="text-muted-foreground">{routeDiagnostics.protocols?.join(" + ") || "fallback"}</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/40 p-2">
+                    <p className="text-muted-foreground">Impact / gas</p>
+                    <p className="font-semibold text-card-foreground">{formatBps(routeDiagnostics.priceImpactBps ?? quote?.priceImpactBps)}</p>
+                    <p className="text-muted-foreground">{routeDiagnostics.gasFeeUSD ? `$${routeDiagnostics.gasFeeUSD}` : routeDiagnostics.gasEstimate ? `gas ${routeDiagnostics.gasEstimate}` : "gas n/a"}</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/40 p-2">
+                    <p className="text-muted-foreground">Approval</p>
+                    <p className="font-semibold text-card-foreground">{approvalStatus}</p>
+                    <p className="text-muted-foreground">{routeDiagnostics.approval?.target ? shortHash(routeDiagnostics.approval.target) : "Permit2 / router check"}</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/40 p-2">
+                    <p className="text-muted-foreground">Pool / freshness</p>
+                    <p className="font-semibold text-card-foreground">{routeDiagnostics.pools?.[0]?.fee ? `${routeDiagnostics.pools[0].protocol ?? "pool"} ${routeDiagnostics.pools[0].fee}` : "pool pending"}</p>
+                    <p className="text-muted-foreground">{routeDiagnostics.quoteValidUntil ? `valid until ${new Date(routeDiagnostics.quoteValidUntil).toLocaleTimeString()}` : "re-quote on retry"}</p>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-xl bg-background/80 p-3">
               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
