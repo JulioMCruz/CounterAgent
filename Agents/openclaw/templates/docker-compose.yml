@@ -236,7 +236,7 @@ services:
     environment:
       - PORT=8791
       - CORS_ORIGIN=https://counteragent.netlify.app,https://counteragent.perkos.xyz,https://orchestrator.counteragent.perkos.xyz
-      - EXECUTION_MODE=dry-run
+      - EXECUTION_MODE=${A3_EXECUTION_MODE:-dry-run}
       - UNISWAP_QUOTE_MODE=api-first
       - CHAIN_ID=${A3_CHAIN_ID:-84532}
       - BASE_RPC_URL=${BASE_RPC_URL:-https://sepolia.base.org}
@@ -249,6 +249,8 @@ services:
       - USDT_TOKEN_ADDRESS_84532=${USDT_TOKEN_ADDRESS_84532:-}
       - KEEPERHUB_API_URL=${KEEPERHUB_API_URL:-}
       - KEEPERHUB_API_KEY=${KEEPERHUB_API_KEY:-}
+      - TREASURY_VAULT_FACTORY_ADDRESS=${TREASURY_VAULT_FACTORY_ADDRESS:-0x6FBbFb4F41b2366B10b93bae5D1a1A4aC3c734BA}
+      - UNIVERSAL_ROUTER_ADDRESS_84532=${UNIVERSAL_ROUTER_ADDRESS_84532:-}
       - EXECUTOR_PRIVATE_KEY=${A3_EXECUTOR_PRIVATE_KEY:-}
     networks: [agents]
 

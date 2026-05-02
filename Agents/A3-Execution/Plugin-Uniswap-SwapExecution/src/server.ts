@@ -1,7 +1,8 @@
 import cors from '@fastify/cors';
 import Fastify from 'fastify';
 import { createHash, randomUUID } from 'node:crypto';
-import { createPublicClient, formatUnits, http, isAddress, parseAbi, parseUnits, type Address } from 'viem';
+import { createPublicClient, createWalletClient, formatUnits, http, isAddress, parseAbi, parseUnits, type Address, type Hex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { z } from 'zod';
 import { UniswapApiError, UniswapTradingApiClient, type StablecoinSymbol, type TokenConfig } from './uniswap.js';
 
@@ -37,6 +38,8 @@ const executeSchema = quoteSchema.extend({
     action: z.enum(['HOLD', 'CONVERT']),
     confidence: z.number().min(0).max(100)
   }),
+  vaultAddress: z.string().refine(isAddress, 'Invalid vault address').optional(),
+  routerCalldata: z.string().regex(/^0x[a-fA-F0-9]*$/).optional(),
   quoteId: z.string().min(1).max(120).optional(),
   idempotencyKey: z.string().min(1).max(160).optional()
 });
@@ -46,6 +49,11 @@ const swapBuildSchema = z.object({
   permitData: z.unknown().optional(),
   signature: z.string().regex(/^0x[a-fA-F0-9]*$/).optional()
 });
+
+function envAddress(name: string) {
+  const value = process.env[name];
+  return value && isAddress(value) ? (value as Address) : undefined;
+}
 
 const port = Number(process.env.PORT ?? 8791);
 const corsOrigins = (process.env.CORS_ORIGIN ?? 'https://counteragent.netlify.app')
@@ -61,6 +69,8 @@ const chainId = Number(process.env.CHAIN_ID ?? 84532);
 const rpcUrl = process.env.BASE_SEPOLIA_RPC_URL ?? process.env.BASE_RPC_URL ?? 'https://sepolia.base.org';
 const keeperHubConfigured = Boolean(process.env.KEEPERHUB_API_URL && process.env.KEEPERHUB_API_KEY);
 const executorConfigured = Boolean(process.env.EXECUTOR_PRIVATE_KEY && !process.env.EXECUTOR_PRIVATE_KEY.includes('<'));
+const treasuryVaultFactoryAddress = envAddress('TREASURY_VAULT_FACTORY_ADDRESS');
+const universalRouterAddress = envAddress(`UNIVERSAL_ROUTER_ADDRESS_${chainId}`) ?? envAddress('UNIVERSAL_ROUTER_ADDRESS');
 
 const uniswap = new UniswapTradingApiClient({
   baseUrl: uniswapApiUrl,
@@ -85,6 +95,15 @@ const publicClient = createPublicClient({
 
 const v4QuoterAbi = parseAbi([
   'function quoteExactInputSingle(((address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks) poolKey,bool zeroForOne,uint128 exactAmount,bytes hookData) params) external returns (uint256 amountOut,uint256 gasEstimate)'
+]);
+
+const treasuryVaultFactoryAbi = parseAbi([
+  'function vaultOf(address merchant) view returns (address)',
+  'function predictedVault(address merchant) view returns (address)'
+]);
+
+const treasuryVaultAbi = parseAbi([
+  'function executeCall(address target,address inputToken,address outputToken,uint256 amountIn,uint256 minAmountOut,uint256 expectedAmountOut,uint16 slippageBps,bytes data) returns (bytes result)'
 ]);
 
 type CounterAgentQuote = {
@@ -144,11 +163,6 @@ await app.register(cors, {
   origin: corsOrigins,
   methods: ['POST', 'GET', 'OPTIONS']
 });
-
-function envAddress(name: string) {
-  const value = process.env[name];
-  return value && isAddress(value) ? (value as Address) : undefined;
-}
 
 function tokenConfig(symbol: StablecoinSymbol): TokenConfig {
   const override = envAddress(`${symbol}_TOKEN_ADDRESS`) ?? envAddress(`${symbol}_TOKEN_ADDRESS_${chainId}`);
@@ -346,6 +360,10 @@ app.get('/healthz', async () => ({
     chainId,
     v4PoolFallbackConfigured: Boolean(v4QuoterAddress()),
     v4Quoter: v4QuoterAddress(),
+    treasuryVaultFactoryConfigured: Boolean(treasuryVaultFactoryAddress),
+    treasuryVaultFactoryAddress,
+    universalRouterConfigured: Boolean(universalRouterAddress),
+    universalRouterAddress,
     keeperHubConfigured,
     executorConfigured
   },
@@ -376,6 +394,167 @@ async function buildQuoteResponse(input: z.infer<typeof quoteSchema>) {
   return { ok: true, workflowId: input.workflowId, quote };
 }
 
+async function resolveMerchantVault(input: { merchantWallet: string; vaultAddress?: string }) {
+  if (input.vaultAddress && isAddress(input.vaultAddress)) {
+    return {
+      vaultAddress: input.vaultAddress as Address,
+      deployed: true,
+      source: 'request' as const
+    };
+  }
+
+  if (!treasuryVaultFactoryAddress) {
+    return {
+      vaultAddress: null,
+      predictedVault: null,
+      deployed: false,
+      source: 'not-configured' as const,
+      error: 'treasury_vault_factory_not_configured'
+    };
+  }
+
+  const merchant = input.merchantWallet as Address;
+  const zeroAddress = '0x0000000000000000000000000000000000000000' as const;
+  const [vaultOf, predictedVault] = await Promise.all([
+    publicClient.readContract({
+      address: treasuryVaultFactoryAddress,
+      abi: treasuryVaultFactoryAbi,
+      functionName: 'vaultOf',
+      args: [merchant]
+    }),
+    publicClient.readContract({
+      address: treasuryVaultFactoryAddress,
+      abi: treasuryVaultFactoryAbi,
+      functionName: 'predictedVault',
+      args: [merchant]
+    })
+  ]);
+
+  const deployed = vaultOf !== zeroAddress;
+  return {
+    vaultAddress: deployed ? vaultOf : predictedVault,
+    predictedVault,
+    deployed,
+    source: deployed ? 'factory-vaultOf' as const : 'factory-predictedVault' as const
+  };
+}
+
+function minAmountOutFor(quote: CounterAgentQuote) {
+  const expected = BigInt(quote.estimatedAmountOutRaw);
+  return (expected * BigInt(10_000 - quote.slippageBps)) / 10_000n;
+}
+
+async function buildVaultRouterCall(input: z.infer<typeof executeSchema>, vaultAddress: Address, quote: CounterAgentQuote) {
+  if (input.routerCalldata) {
+    return {
+      target: universalRouterAddress,
+      calldata: input.routerCalldata as Hex,
+      source: 'request-calldata' as const
+    };
+  }
+
+  if (quote.provider !== 'uniswap-trading-api' || !quote.rawQuote) {
+    return {
+      target: universalRouterAddress,
+      calldata: undefined,
+      source: 'unavailable' as const,
+      error: 'uniswap_router_calldata_unavailable'
+    };
+  }
+
+  const swap = await uniswap.buildSwap({ quote: quote.rawQuote });
+  const tx = swap.transaction;
+  const value = tx?.value ? BigInt(tx.value) : 0n;
+  if (value > 0n) {
+    return {
+      target: tx?.to ?? universalRouterAddress,
+      calldata: tx?.data,
+      source: 'uniswap-trading-api' as const,
+      error: 'native_value_router_calls_not_supported'
+    };
+  }
+
+  return {
+    target: tx?.to ?? universalRouterAddress,
+    calldata: tx?.data,
+    source: 'uniswap-trading-api' as const,
+    requestId: swap.requestId,
+    swapper: vaultAddress
+  };
+}
+
+async function executeViaVault(input: z.infer<typeof executeSchema>) {
+  const vault = await resolveMerchantVault(input);
+  const vaultAddress = vault.vaultAddress;
+  if (!vaultAddress) {
+    return { ok: false, error: vault.error ?? 'vault_not_resolved', vault };
+  }
+
+  const quote = await buildQuote({ ...input, merchantWallet: vaultAddress });
+  const routerCall = await buildVaultRouterCall(input, vaultAddress, quote);
+  const expectedAmountOut = BigInt(quote.estimatedAmountOutRaw);
+  const minAmountOut = minAmountOutFor(quote);
+  const dryRunPayload = {
+    ok: true,
+    workflowId: input.workflowId,
+    status: 'vault-dry-run',
+    vault,
+    quote,
+    routerCall: {
+      target: routerCall.target,
+      source: routerCall.source,
+      calldataReady: Boolean(routerCall.calldata),
+      error: routerCall.error
+    },
+    executeCall: {
+      target: routerCall.target,
+      inputToken: quote.tokenIn,
+      outputToken: quote.tokenOut,
+      amountIn: quote.amountInRaw,
+      minAmountOut: minAmountOut.toString(),
+      expectedAmountOut: expectedAmountOut.toString(),
+      slippageBps: quote.slippageBps
+    },
+    transactionHash: null
+  };
+
+  if (executionMode !== 'vault-live') return dryRunPayload;
+
+  if (!vault.deployed) return { ok: false, error: 'vault_not_deployed', vault };
+  if (!executorConfigured || !process.env.EXECUTOR_PRIVATE_KEY) return { ok: false, error: 'executor_not_configured', vault };
+  if (!routerCall.target || !routerCall.calldata) return { ok: false, error: routerCall.error ?? 'router_calldata_not_ready', vault, quote };
+
+  const account = privateKeyToAccount(process.env.EXECUTOR_PRIVATE_KEY as Hex);
+  const walletClient = createWalletClient({
+    account,
+    transport: http(rpcUrl),
+    chain: publicClient.chain
+  });
+
+  const transactionHash = await walletClient.writeContract({
+    address: vaultAddress,
+    abi: treasuryVaultAbi,
+    functionName: 'executeCall',
+    args: [
+      routerCall.target,
+      quote.tokenIn,
+      quote.tokenOut,
+      BigInt(quote.amountInRaw),
+      minAmountOut,
+      expectedAmountOut,
+      quote.slippageBps,
+      routerCall.calldata
+    ]
+  });
+
+  return {
+    ...dryRunPayload,
+    status: 'vault-submitted',
+    executor: account.address,
+    transactionHash
+  };
+}
+
 async function buildExecuteResponse(input: z.infer<typeof executeSchema>) {
   if (input.decision.action !== 'CONVERT') {
     pushRecentSwap({
@@ -400,6 +579,34 @@ async function buildExecuteResponse(input: z.infer<typeof executeSchema>) {
   }
 
   const quote = await buildQuote(input);
+
+  if (executionMode === 'vault-dry-run' || executionMode === 'vault-live') {
+    const result = await executeViaVault(input) as {
+      ok: boolean;
+      status?: string;
+      error?: string;
+      transactionHash?: string | null;
+      quote?: CounterAgentQuote;
+    };
+    pushRecentSwap({
+      agent: 'A3',
+      type: 'execution',
+      workflowId: input.workflowId,
+      merchant: input.merchantWallet,
+      fromToken: input.fromToken,
+      toToken: input.toToken,
+      amount: input.amount,
+      rate: result.ok ? result.quote?.rate : quote.rate,
+      status: result.ok ? result.status ?? 'vault-dry-run' : result.error ?? 'vault_execution_failed',
+      quoteId: result.ok ? result.quote?.quoteId : quote.quoteId,
+      txHash: result.ok ? result.transactionHash ?? null : null,
+      estimatedAmountOut: result.ok ? result.quote?.estimatedAmountOut : quote.estimatedAmountOut,
+      provider: result.ok ? result.quote?.provider : quote.provider,
+      fallbackReason: result.ok ? result.quote?.fallbackReason : quote.fallbackReason,
+      timestamp: new Date().toISOString()
+    });
+    return result;
+  }
 
   if (executionMode === 'dry-run' || quote.provider !== 'uniswap-trading-api') {
     const executionId = input.idempotencyKey ?? randomUUID();
@@ -496,7 +703,7 @@ app.post('/execution/execute', async (request, reply) => {
     return reply.code(400).send({ ok: false, error: 'invalid_request', details: parsed.error.flatten() });
   }
 
-  const result = await buildExecuteResponse(parsed.data);
+  const result = await buildExecuteResponse(parsed.data) as { ok?: boolean; error?: string };
   if (result.ok === false && result.error === 'executor_not_configured') return reply.code(409).send(result);
   if (result.ok === false) return reply.code(501).send(result);
   return reply.send(result);
