@@ -4,7 +4,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { DynamicWidget } from "@dynamic-labs/sdk-react-core"
-import { Zap, Check, ArrowLeft, Loader2 } from "lucide-react"
+import { Zap, ArrowLeft, Loader2, Bell, Coins, FileText, Globe2, Network, ShieldCheck, TrendingUp } from "lucide-react"
 import { useAccount, useChainId, useSignTypedData, useSwitchChain } from "wagmi"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -20,10 +20,54 @@ import {
 } from "@/lib/registry"
 import { dynamicConfigured } from "@/lib/dynamic-config"
 
-const steps = ["Connect", "Configure", "Active"]
 const riskLevels = ["Conservative", "Moderate", "Aggressive"] as const
 const stablecoins = ["USDC", "EURC", "USDT"] as const
 const ensParent = "counteragent.eth"
+
+const onboardingSteps = [
+  {
+    id: "ens",
+    label: "ENS",
+    title: "Merchant identity",
+    description: "Reserve a counteragent.eth subname that mirrors public discovery config.",
+    icon: Globe2,
+  },
+  {
+    id: "network",
+    label: "Network",
+    title: "Base Sepolia",
+    description: "Register treasury config on the active CounterAgent merchant registry chain.",
+    icon: Network,
+  },
+  {
+    id: "token",
+    label: "Token",
+    title: "Stablecoin output",
+    description: "Choose the preferred output asset for FX-aware settlement.",
+    icon: Coins,
+  },
+  {
+    id: "guardrails",
+    label: "Guardrails",
+    title: "Risk controls",
+    description: "Set risk tolerance before the agent can execute conversion decisions.",
+    icon: ShieldCheck,
+  },
+  {
+    id: "fxrate",
+    label: "FX Rate",
+    title: "Conversion trigger",
+    description: "Define the rate-improvement threshold that activates swaps.",
+    icon: TrendingUp,
+  },
+  {
+    id: "telegram",
+    label: "Telegram",
+    title: "Operator alerts",
+    description: "Send activation, conversion, anomaly, and report events to Telegram.",
+    icon: Bell,
+  },
+] as const
 
 function sanitizeMerchantSlug(value: string) {
   return value
@@ -42,7 +86,6 @@ export default function OnboardingPage() {
   const { switchChainAsync } = useSwitchChain()
   const { signTypedDataAsync, isPending: isSigning } = useSignTypedData()
 
-  const [currentStep, setCurrentStep] = useState(1)
   const [merchantSlug, setMerchantSlug] = useState("")
   const [threshold, setThreshold] = useState([0.5])
   const [riskTolerance, setRiskTolerance] = useState<typeof riskLevels[number]>("Moderate")
@@ -169,7 +212,6 @@ export default function OnboardingPage() {
         setReportUri(onboarding.report.storageUri)
       }
 
-      setCurrentStep(2)
       setStatusText(
         onboarding.report?.storageUri
           ? `Treasury config active. Report stored at ${onboarding.report.storageUri}. Opening dashboard…`
@@ -207,33 +249,59 @@ export default function OnboardingPage() {
       </header>
 
       {/* Step Indicator */}
-      <div className="flex items-center justify-center gap-2 border-b border-border bg-card px-4 py-3">
-        {steps.map((step, i) => {
-          const isCompleted = i < currentStep
-          const isCurrent = i === currentStep
-          return (
-            <button
-              key={step}
-              className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-semibold transition-colors ${
-                isCurrent
-                  ? "bg-header-bg text-header-foreground"
-                  : isCompleted
-                  ? "bg-success/10 text-success"
-                  : "bg-secondary text-muted-foreground"
-              }`}
-            >
-              {isCompleted && <Check className="h-3 w-3" />}
-              {step}
-            </button>
-          )
-        })}
+      <div className="border-b border-border bg-card px-4 py-3">
+        <div className="mx-auto grid max-w-5xl grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
+          {onboardingSteps.map((step) => {
+            const Icon = step.icon
+            return (
+              <div key={step.id} className="rounded-xl border border-border bg-background px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Icon className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="text-xs font-bold text-foreground">{step.label}</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </div>
 
       {/* Form - centered on desktop */}
       <main className="mx-auto flex max-w-2xl flex-col gap-5 p-5 lg:p-8">
         <div>
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+            <FileText className="h-3.5 w-3.5" /> Guided onboarding
+          </div>
           <h1 className="text-2xl font-extrabold tracking-tight text-foreground lg:text-3xl">Set Up Your Treasury</h1>
-          <p className="mt-1 text-sm text-muted-foreground lg:text-base">Configure once via ENS. No database. No app login.</p>
+          <p className="mt-1 text-sm text-muted-foreground lg:text-base">Configure ENS, network, token, guardrails, FX rate, and Telegram alerts before the agent goes live.</p>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-3">
+          {onboardingSteps.map((step) => {
+            const Icon = step.icon
+            const isReady =
+              step.id === "ens" ? Boolean(merchantSlug) :
+              step.id === "network" ? connectedToTargetChain :
+              step.id === "token" ? Boolean(preferredCoin) :
+              step.id === "guardrails" ? Boolean(riskTolerance) :
+              step.id === "fxrate" ? threshold[0] >= 0 :
+              Boolean(telegramChat)
+            return (
+              <Card key={step.id} className={isReady ? "border-primary/30 bg-primary/5" : "border-border"}>
+                <CardContent className="flex gap-3 px-4 py-4">
+                  <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${isReady ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"}`}>
+                    <Icon className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{step.label}</p>
+                    <h2 className="mt-0.5 text-sm font-bold text-foreground">{step.title}</h2>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{step.description}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })}
         </div>
 
         {!address && (
@@ -258,6 +326,18 @@ export default function OnboardingPage() {
 
         {/* Desktop: two-column form layout */}
         <div className="flex flex-col gap-5 lg:grid lg:grid-cols-2 lg:gap-6">
+          {/* Network */}
+          <Card>
+            <CardContent className="px-4 py-4">
+              <label className="mb-2 block text-sm font-semibold text-foreground">Network</label>
+              <div className="rounded-xl border border-border bg-secondary px-3 py-3">
+                <p className="text-sm font-bold text-foreground">{activeChain.name}</p>
+                <p className="mt-1 text-xs text-muted-foreground">Chain ID {activeChain.id} · Merchant registry {merchantRegistryConfigured ? "configured" : "missing"}</p>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">Wallet must be connected to this network before activation.</p>
+            </CardContent>
+          </Card>
+
           {/* Merchant ENS Subname */}
           <Card>
             <CardContent className="px-4 py-4">
@@ -338,7 +418,7 @@ export default function OnboardingPage() {
         {/* Preferred Stablecoin - full width */}
         <Card>
           <CardContent className="px-4 py-4">
-            <label className="mb-3 block text-sm font-semibold text-foreground">Preferred Stablecoin Output</label>
+            <label className="mb-3 block text-sm font-semibold text-foreground">Token — Preferred Stablecoin Output</label>
             <div className="flex gap-2">
               {stablecoins.map((coin) => (
                 <button
@@ -422,7 +502,7 @@ export default function OnboardingPage() {
         </Button>
 
         <p className="text-center text-xs text-muted-foreground">
-          Execution settings are stored in the Base Sepolia registry. ENS records mirror public agent-discovery config.
+          Execution settings are stored in the active network registry. ENS records mirror public agent-discovery config.
         </p>
       </main>
     </div>
