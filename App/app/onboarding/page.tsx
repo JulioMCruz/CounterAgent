@@ -520,6 +520,30 @@ export default function OnboardingPage() {
                       <h3 className="text-lg font-black text-foreground">Set Your Guardrails</h3>
                       <p className="text-sm text-muted-foreground">The agent can never exceed these limits. Stored in your ENS profile.</p>
                     </div>
+
+                    <div className="rounded-2xl border border-border bg-background p-4">
+                      <p className="text-sm font-black text-foreground">Risk tolerance</p>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                        This tells the Decision Agent how conservative it should be before recommending a conversion.
+                      </p>
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        {riskLevels.map((level) => (
+                          <button
+                            key={level}
+                            type="button"
+                            onClick={() => { setPreparedRegistration(null); setRiskTolerance(level) }}
+                            className={`rounded-xl px-3 py-2.5 text-xs font-semibold transition-colors ${
+                              riskTolerance === level
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-secondary text-muted-foreground hover:bg-muted"
+                            }`}
+                          >
+                            {level}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
                     <div className="overflow-hidden rounded-2xl border border-border bg-background">
                       {[
                         { label: "Max per swap", help: "Single transaction cap", value: maxPerSwap, setter: setMaxPerSwap, suffix: "USDC" },
