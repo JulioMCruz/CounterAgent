@@ -617,12 +617,19 @@ async function publishWorkflowReport(input: {
   decision: unknown;
   execution: unknown;
   quote: unknown;
+  merchantConfig?: unknown;
 }) {
   if (!reportingAgentUrl) return null;
 
   const decisionRecord = input.decision as { decision?: { action?: string; reason?: string } };
   const executionRecord = input.execution as { transactionHash?: string | null; status?: string };
   const quoteRecord = input.quote as { quote?: { rate?: number } };
+  const merchantConfig = input.merchantConfig && typeof input.merchantConfig === 'object'
+    ? input.merchantConfig as { records?: Record<string, unknown> }
+    : undefined;
+  const telegramChatId = typeof merchantConfig?.records?.['counteragent.telegram_chat_id'] === 'string'
+    ? merchantConfig.records['counteragent.telegram_chat_id']
+    : undefined;
   const txHash = typeof executionRecord.transactionHash === 'string' ? executionRecord.transactionHash : undefined;
 
   return callWorkflowAgent({
@@ -641,6 +648,11 @@ async function publishWorkflowReport(input: {
     transactionHash: txHash && /^0x[a-fA-F0-9]{64}$/.test(txHash) ? txHash : undefined,
     executionAgent: 'A3-Uniswap-SwapExecution',
     metadata: {
+      amount: input.amount,
+      fromToken: input.fromToken,
+      toToken: input.toToken,
+      notification: { telegramChatId },
+      merchantConfig,
       quote: input.quote,
       decision: input.decision,
       execution: input.execution
@@ -1473,7 +1485,8 @@ app.post('/workflow/evaluate', async (request, reply) => {
         amount: workflow.amount,
         quote,
         decision,
-        execution
+        execution,
+        merchantConfig
       });
 
       await emitAxlMessage({

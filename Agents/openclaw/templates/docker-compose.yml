@@ -292,8 +292,22 @@ services:
       - ZERO_G_RPC_URL=${ZERO_G_RPC_URL:-https://evmrpc-testnet.0g.ai}
       - ZERO_G_INDEXER_RPC_URL=${ZERO_G_INDEXER_RPC_URL:-https://indexer-storage-testnet-turbo.0g.ai}
       - A4_REPORTING_PRIVATE_KEY=${A4_REPORTING_PRIVATE_KEY:-}
+      - TELEGRAM_ALERTS_URL=http://telegram-alerts-plugin:8794
+      - TELEGRAM_ALERTS_ENABLED=${TELEGRAM_ALERTS_ENABLED:-true}
     volumes:
       - reporting_data:/app/data
+    networks: [agents]
+
+  telegram-alerts-plugin:
+    build: ./agents/a4-reporting/Plugin-Telegram-Alerts
+    container_name: counteragent-telegram-alerts-plugin
+    restart: unless-stopped
+    environment:
+      - PORT=8794
+      - CORS_ORIGIN=https://counteragents.cc,https://orchestrator.counteragents.cc,https://reporting.counteragents.cc
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_ALERTS_ENABLED=${TELEGRAM_ALERTS_ENABLED:-true}
+      - TELEGRAM_TIMEOUT_MS=${TELEGRAM_TIMEOUT_MS:-8000}
     networks: [agents]
 
   uniswap-swap-plugin:
@@ -349,6 +363,7 @@ services:
       - gensyn-axl-messaging-plugin
       - monitor-plugin
       - reporting-plugin
+      - telegram-alerts-plugin
       - axl-a0-transport
       - axl-a1-transport
       - axl-a2-transport

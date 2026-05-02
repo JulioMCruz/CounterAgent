@@ -29,6 +29,8 @@ import {
   riskToleranceFromRegistryRisk,
   shortenAddress,
   stablecoinSymbolFromAddress,
+  telegramBotStartUrl,
+  telegramBotUsername,
   telegramDisplayFromMerchant,
   type ResolvedMerchantConfig,
   uploadEnsProfileImage,
@@ -926,6 +928,14 @@ export default function SettingsPage() {
                     <div className="flex-1">
                       <p className="text-sm font-semibold text-card-foreground">Telegram Alerts</p>
                       <p className="text-xs text-muted-foreground">{telegramDisplayFromMerchant(merchant)}</p>
+                      <a
+                        href={telegramBotStartUrl(address ?? merchant?.walletAddress)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1 inline-block text-xs font-bold text-primary underline-offset-4 hover:underline"
+                      >
+                        Connect @{telegramBotUsername.replace(/^@/, "")}
+                      </a>
                     </div>
                     <Switch checked={registered} disabled />
                   </div>
@@ -1059,7 +1069,7 @@ export default function SettingsPage() {
                     <Input
                       value={ensDraft[key]}
                       onChange={(event) => updateEnsDraft({ [key]: event.target.value } as Partial<EnsProfileDraft>) }
-                      placeholder={key === "telegram" || key === "twitter" ? "@handle" : "handle or URL"}
+                      placeholder={key === "telegram" ? "@handle; chat_id is stored by the alerts bot" : key === "twitter" ? "@handle" : "handle or URL"}
                       disabled={isEnsSaving}
                     />
                   </div>

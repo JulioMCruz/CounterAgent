@@ -2,6 +2,16 @@ export const orchestratorUrl = "/api/a0"
 
 export const a0Url = orchestratorUrl
 
+export const telegramBotUsername = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "CounterAgents_Bot"
+
+export function telegramBotStartUrl(startPayload?: string | null) {
+  const username = telegramBotUsername.replace(/^@/, "")
+  const payload = startPayload?.trim()
+  return payload
+    ? `https://t.me/${username}?start=${encodeURIComponent(payload.slice(0, 64))}`
+    : `https://t.me/${username}`
+}
+
 export type SessionResolveRequest = {
   walletAddress: `0x${string}`
   chainId: number

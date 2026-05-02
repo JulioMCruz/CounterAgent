@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Slider } from "@/components/ui/slider"
 import { AgentInteractionFlow } from "@/components/agent-interaction-flow"
 import { SessionHeaderActions } from "@/components/session-header-actions"
-import { prepareOnboarding, startOnboarding, type OnboardingPrepareResponse } from "@/lib/a0"
+import { prepareOnboarding, startOnboarding, telegramBotStartUrl, telegramBotUsername, type OnboardingPrepareResponse } from "@/lib/a0"
 import {
   activeChain,
   activeChainSwitchParams,
@@ -110,6 +110,7 @@ export default function OnboardingPage() {
         : statusText
           ? "preparing"
           : "idle"
+  const telegramConnectUrl = telegramBotStartUrl((address ?? merchantSlug) || undefined)
 
 
   async function handleSwitchNetwork() {
@@ -450,13 +451,26 @@ export default function OnboardingPage() {
           {/* Telegram */}
           <Card>
             <CardContent className="px-4 py-4">
-              <label className="mb-2 block text-sm font-semibold text-foreground">Telegram Chat ID</label>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <label className="block text-sm font-semibold text-foreground">Telegram Chat ID</label>
+                <a
+                  href={telegramConnectUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-bold text-primary underline-offset-4 hover:underline"
+                >
+                  Connect @{telegramBotUsername.replace(/^@/, "")}
+                </a>
+              </div>
               <Input
-                placeholder="@yourchat or chat ID"
+                placeholder="numeric chat_id after /start"
                 value={telegramChat}
                 onChange={(e) => { setPreparedRegistration(null); setTelegramChat(e.target.value) }}
                 className="bg-secondary"
               />
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                Telegram bots cannot DM a username directly. Open the bot link, press /start, then store the numeric chat_id here for A4 report alerts.
+              </p>
               <div className="mt-3 grid gap-2">
                 {[
                   { agent: "A2", title: "Decision alerts", description: "Convert/Hold decisions and confidence", icon: Pause, tone: "bg-warning/10 text-warning-foreground" },
