@@ -1,405 +1,354 @@
-# CounterAgent 🦩
+# CounterAgent
 
-> **Autonomous stablecoin treasury management for merchants on Base — within guardrails you control. No backend. No rogue behaviour. No value lost to bad FX timing.**
+Autonomous treasury operations for merchants that accept stablecoins.
 
-[![ETHGlobal](https://img.shields.io/badge/ETHGlobal-Open%20Agents%202026-blue)](https://ethglobal.com/events/openagents)
-[![Base](https://img.shields.io/badge/Network-Base-0052FF)](https://base.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+CounterAgent watches merchant balances, reads policy from ENS, evaluates live swap routes through Uniswap, coordinates a five-agent workflow over Gensyn AXL, and publishes an auditable report for every decision. The product goal is simple: help merchants keep revenue in their preferred stablecoin without giving a server custody or asking an operator to watch FX markets all day.
 
----
+## Executive summary
 
-## The Problem
+Stablecoin payments are becoming normal for merchants, but treasury operations are still manual. A merchant can receive EURC, USDT, cUSD, cEUR, or CELO, then lose margin through delayed conversion, weak routes, unmanaged slippage, or poor operational controls.
 
-Merchants accepting crypto payments leak value every day to poor FX timing:
+CounterAgent turns that workflow into a bounded autonomous system:
 
-- Converting EURC → USDC manually means watching rates, calculating fees, and still getting it wrong
-- No existing tool monitors FX spreads continuously and acts autonomously
-- Every solution requires a centralised server — one point of failure, one point of trust
-- Automated responses execute without consensus — wrong actions cost real money
-- In 2024–2025, merchants lost significant value simply by converting at the wrong moment
+- ENS stores merchant policy, profile, and agent discovery records.
+- Gensyn AXL carries agent-to-agent coordination across dedicated agent nodes.
+- Uniswap Trading API and direct route diagnostics produce swap intelligence before execution.
+- A non-custodial vault model keeps funds merchant-owned and policy-bound.
+- Reporting and alerts create a durable operational trail.
 
----
+The wedge is treasury automation for small and mid-sized merchants. The larger opportunity is an agent-operated finance layer where configuration, identity, routing, execution, and proof are all composable.
 
-## The Solution
+## What to notice first
 
-CounterAgent is a 5-agent autonomous system that watches your wallet, scores live FX rates, and converts stablecoins at the optimal moment via Uniswap v3 — with **x402 micropayments settling every inter-agent step on-chain**. Agents communicate over a **Gensyn AXL encrypted P2P mesh** — no central server, no single point of failure. You get a Telegram alert when it happens.
+| Area | What is implemented | Why it matters |
+| --- | --- | --- |
+| Agent orchestration | Five role-specific agents coordinated by A0 | Separates monitoring, scoring, execution, and reporting responsibilities |
+| Gensyn AXL | Real transport path and tests for agent communication | Shows agent workflow can move beyond local HTTP calls |
+| ENS | Merchant config plus role-based agent identity mesh | ENS becomes a service registry, not just a naming layer |
+| Uniswap | Trading API first, V4/V3 deterministic routing, route diagnostics, approval checks | Makes execution explainable before a wallet signs anything |
+| Vault safety | Merchant-owned vault factory and policy intent flow | Preserves non-custodial design while enabling bounded automation |
+| App experience | Dashboard surfaces ENS profile, AXL status, route intelligence, vault plan, reports | Reviewers and operators can see the agent workflow, not just read logs |
 
-Agents are distributed across **4 AXL nodes**, each with a distinct role:
+## Product narrative
 
-| AXL Node | Role | Responsibility |
-|---|---|---|
-| **Coordinator** | Agent 0 — Orchestrator | Pipeline control, failure handling, recovery |
-| **Monitor** | Agent 1 — Monitor | ENS config reads, wallet + pool rate polling |
-| **Analyst** | Agent 2 — Decision | FX scoring, HOLD / CONVERT determination |
-| **Action** | Agent 3 + 4 — Execution & Reporting | Swap execution, 0G audit log, Telegram alert |
+A merchant receives stablecoin payments on Base or Celo. CounterAgent resolves the merchant's ENS profile and policy, checks balances and preferred stablecoin, asks Uniswap for route intelligence, scores whether conversion is worthwhile, prepares a safe execution path, and records the outcome.
 
-1. **Agent 0 (Orchestrator)** — coordinates all agents via AXL, owns failure and recovery decisions
-2. **Agent 1 (Monitor)** — reads ENS config, watches wallet balances and Uniswap pool rates in real time
-3. **Agent 2 (Decision)** — runs hold/convert scoring logic weighted by FX spread, fee, and risk tolerance
-4. **Agent 3 (Execution)** — submits swaps via Uniswap v3 on Base and Celo; enforces guardrails (max_swap_amount, daily_limit, max_slippage); x402 handles inter-agent payment settlement
-5. **Agent 4 (Reporting)** — logs every decision to 0G Storage; sends Telegram alert to merchant
+The merchant keeps control:
 
----
+- Configuration lives in ENS records the merchant can inspect and update.
+- Funds stay in the merchant wallet or merchant-owned vault.
+- The execution agent can only operate within configured limits.
+- Every decision is visible in the app and report trail.
+
+CounterAgent is designed to answer the core investor and reviewer question: can autonomous agents perform useful financial operations without becoming an opaque custodial bot? The answer here is yes: keep custody bounded, publish identity and policy through ENS, coordinate agents through AXL, and make each Uniswap route decision explainable.
+
+## Agent workflow
+
+| Role name | ENS identity | Service | Protocols used | Responsibility |
+| --- | --- | --- | --- | --- |
+| Treasury Orchestrator | `orchestrator.counteragents.eth` | `counteragent-orchestrator` | App API, Gensyn AXL, MCP-style tool calls | Starts workflows, routes messages, handles recovery |
+| ENS Monitor | `monitor.counteragents.eth` | `counteragent-monitor` | ENS, Gensyn AXL, MCP-style lookup | Reads merchant ENS config and watches treasury state |
+| Risk Decision Engine | `decision.counteragents.eth` | `counteragent-decision` | Gensyn AXL, route diagnostics, policy scoring | Scores routes, thresholds, risk, and confidence |
+| Uniswap Execution Agent | `execution.counteragents.eth` | `counteragent-execution` | Uniswap Trading API, V4/V3, approval checks, vault policy | Builds quotes, approval diagnostics, and swap calldata |
+| Proof Reporting Agent | `reporting.counteragents.eth` | `counteragent-reporting` | Report storage, Telegram alerts, Gensyn AXL | Publishes report pointers and merchant alerts |
+
+The public ENS surface uses role names instead of internal A0-A4 labels. This makes the system easier to understand and creates a reusable identity layer for agent discovery.
+
+### What each agent does
+
+```mermaid
+flowchart TD
+  A0[Treasury Orchestrator] -->|asks for config| A1[ENS Monitor]
+  A1 -->|ENS policy and identity records| A0
+  A0 -->|asks for route intelligence| A3[Uniswap Execution Agent]
+  A3 -->|quote, approval, routeDiagnostics| A0
+  A0 -->|asks for policy decision| A2[Risk Decision Engine]
+  A2 -->|HOLD or CONVERT plus confidence| A0
+  A0 -->|execution request when allowed| A3
+  A3 -->|transaction plan or execution status| A0
+  A0 -->|report payload| A4[Proof Reporting Agent]
+  A4 -->|report pointer and alert status| A0
+```
 
 ## Architecture
 
+### System architecture
+
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#E8E4F8', 'primaryBorderColor': '#9B8EC4', 'primaryTextColor': '#231F20', 'lineColor': '#888888', 'secondaryColor': '#FFF9E0', 'tertiaryColor': '#E8F0FF'}}}%%
-
 flowchart TD
-    PAY["💳 Incoming Payment\nUSDC · EURC · USDT\nBase · Celo"]
+  User[Merchant or reviewer] --> App[Next.js app]
+  App --> A0[Treasury Orchestrator]
 
-    subgraph AXL ["Gensyn AXL — Encrypted P2P Mesh"]
-        subgraph NODE1 ["🟣 Coordinator Node"]
-            A0["🧠 AGENT 0 — Orchestrator\ncoordinates pipeline · owns failure & recovery"]
-        end
-        subgraph NODE2 ["🟣 Monitor Node"]
-            A1["👁 AGENT 1 — Monitor\nreads ENS config · watches balances + pool rates"]
-        end
-        subgraph NODE3 ["🟣 Analyst Node"]
-            A2["⚖️ AGENT 2 — Decision\nFX spread × fee × risk tolerance\n→ HOLD or CONVERT"]
-        end
-        subgraph NODE4 ["🟣 Action Node"]
-            A3["⚡ AGENT 3 — Execution\nswap via Uniswap v3\nenforces guardrails · max_swap · slippage · daily_limit"]
-            A4["📣 AGENT 4 — Reporting\nwrite to 0G Storage · Telegram alert"]
-        end
-    end
+  subgraph Mesh[Gensyn AXL transport mesh]
+    A0 --> A1[ENS Monitor]
+    A0 --> A2[Risk Decision Engine]
+    A0 --> A3[Uniswap Execution Agent]
+    A0 --> A4[Proof Reporting Agent]
+    A1 --> A2
+    A2 --> A3
+    A3 --> A4
+    A4 --> A0
+  end
 
-    ENS["📋 ENS Text Records\nfx_threshold · risk_tolerance · preferred_stablecoin\ntelegram_chat_id · confirm_mode · max_swap_amount\ndaily_limit · max_slippage"]
-    UNI["🦄 Uniswap v3\nEURC / USDT → USDC\nBase · Celo liquidity pools"]
-    ZERO["🗄 0G Storage\nimmutable audit log\nFX rate · decision · tx hash · outcome"]
-    TG["📱 Telegram Bot API\n✅ swap executed · ⏸ hold · ⚠️ anomaly · 🛑 halt\nreply YES / NO in strict confirm mode"]
+  subgraph Identity[ENS identity and policy layer]
+    MerchantENS[Merchant profile records]
+    AgentENS[Role-based agent identity mesh]
+  end
 
-    BASE[["⬡ Base · Celo\nx402 on-chain settlement · Uniswap v3 · ENS registry · 0G Storage"]]
+  subgraph Markets[Market and execution layer]
+    UNIAPI[Uniswap Trading API]
+    UNIV4[Uniswap V4 and V3 routes]
+    Vault[Merchant-owned vault]
+  end
 
-    PAY --> A0
-    A0 --> A1
-    A0 --> A2
-    A1 -. fresh data .-> A2
-    A1 <-. reads config .-> ENS
-    A2 -- "x402 micropayment" --> A3
-    A2 -. failure .-> A0
-    A3 -- swap --> UNI
-    A3 -- "x402 micropayment" --> A4
-    A4 -- write --> ZERO
-    A4 -- alert --> TG
-    A4 -. complete .-> A0
+  subgraph Proof[Reporting layer]
+    Reports[Report storage]
+    Alerts[Telegram alerts]
+  end
 
-    UNI --- BASE
-    ENS --- BASE
-    ZERO --- BASE
+  A1 <--> MerchantENS
+  A1 <--> AgentENS
+  A3 <--> UNIAPI
+  A3 <--> UNIV4
+  A3 <--> Vault
+  A4 --> Reports
+  A4 --> Alerts
+  App <--> MerchantENS
 ```
 
-All agents are **bidirectional** — failures propagate back through the pipeline (Execution → Decision → Orchestrator) rather than silently dropping.
+### Protocol map by agent
 
-Every inter-agent step settles via **x402 micropayments on Base** — agents pay each other on-chain, making the entire pipeline verifiably trustless with no off-chain coordination.
+```mermaid
+flowchart LR
+  subgraph UserSide[User side]
+    User[Merchant wallet]
+    Browser[CounterAgent app]
+    Telegram[Telegram alerts]
+  end
 
----
+  subgraph Agents[CounterAgent agents]
+    A0[Treasury Orchestrator]
+    A1[ENS Monitor]
+    A2[Risk Decision Engine]
+    A3[Uniswap Execution Agent]
+    A4[Proof Reporting Agent]
+  end
 
-## Partner Integrations
+  subgraph Protocols[Protocols and rails]
+    ENS[ENS records]
+    AXL[Gensyn AXL]
+    UNI[Uniswap Trading API and V4/V3]
+    Vault[Merchant-owned vault]
+    Storage[Report storage]
+  end
 
-### Gensyn AXL — Encrypted Agent Transport Layer
-All inter-agent communication runs over Gensyn's AXL encrypted P2P mesh. CounterAgent deploys across **4 AXL nodes** — Coordinator, Monitor, Analyst, and Action — each running a distinct part of the pipeline. No centralised message broker, no single point of failure, no off-chain trust assumptions. Agents discover each other via the AXL registry and communicate over encrypted channels regardless of where each node is hosted.
-
-| AXL Node | Agents | Function |
-|---|---|---|
-| Coordinator | Agent 0 | Orchestrate pipeline, handle failures |
-| Monitor | Agent 1 | Poll ENS config and Uniswap pool rates |
-| Analyst | Agent 2 | Score FX opportunity, issue HOLD/CONVERT |
-| Action | Agent 3 + 4 | Execute swap, log to 0G, alert merchant |
-
-### x402 — Inter-Agent Payment Settlement
-Each agent-to-agent handoff in the pipeline is settled via x402 micropayments on Base. When Agent 2 signals Agent 3 to execute, that instruction carries an on-chain payment — no off-chain trust required. The full pipeline is economically self-contained and auditable end-to-end.
-
-### ENS — Decentralised Config Store
-Each merchant stores treasury configuration in ENS text records — one setup step, fully self-custodial, no centralised database:
-
-| ENS Text Record | Value |
-|---|---|
-| `counteragent.fx_threshold` | `0.005` (0.5%) |
-| `counteragent.risk_tolerance` | `moderate` |
-| `counteragent.preferred_stablecoin` | `USDC` |
-| `counteragent.telegram_chat_id` | `@merchantchat` |
-
-Config is readable at runtime by Agent 1 — merchants update settings without touching any app.
-
-The full ENS config schema including guardrails:
-
-| ENS Text Record | Example | Purpose |
-|---|---|---|
-| `counteragent.fx_threshold` | `0.005` | Minimum spread (0.5%) to trigger conversion |
-| `counteragent.risk_tolerance` | `moderate` | low / moderate / high |
-| `counteragent.preferred_stablecoin` | `USDC` | Target token |
-| `counteragent.telegram_chat_id` | `@merchantchat` | Alert + confirmation destination |
-| `counteragent.confirm_mode` | `strict` | `strict` = require Telegram YES · `auto` = execute after timeout |
-| `counteragent.max_swap_amount` | `500` | Hard cap per single transaction (USDC) |
-| `counteragent.daily_limit` | `2000` | Maximum total swapped per 24h |
-| `counteragent.max_slippage` | `0.003` | Reject swap if slippage exceeds 0.3% |
-
-### Uniswap v3 — Swap Execution
-Agent 3 executes swaps across Base and Celo liquidity pools:
-
-| Pair | Network | Pool |
-|---|---|---|
-| EURC → USDC | Base | Uniswap v3 |
-| USDT → USDC | Base | Uniswap v3 |
-| USDC → EURC | Base | Uniswap v3 |
-| cEUR → cUSD | Celo | Uniswap v3 |
-| cKES → cUSD | Celo | Uniswap v3 |
-| cGHS → cUSD | Celo | Uniswap v3 |
-
-### 0G Storage — Immutable Audit Log
-Every consensus round writes to 0G:
-- Proposal data (FX rate, spread, tx hash)
-- Agent decision (HOLD / CONVERT + reasoning)
-- Execution result (swap hash, rate achieved, fee paid)
-- Final outcome with timestamps
-
-Verifiable on [storagescan.0g.ai](https://storagescan.0g.ai)
-
-### Telegram Bot API — Merchant Alerts & Confirmations
-Telegram is **bidirectional** — merchants receive alerts *and* approve swaps. In `strict` confirm mode, no swap ever executes without an explicit YES from the merchant's phone.
-
-**Outbound alerts:**
-
-| Trigger | Alert |
-|---|---|
-| 🔔 Swap pending confirmation | Amount, rate, estimated saving — reply YES / NO |
-| ✅ Swap executed | Amount, rate achieved, fee saved vs card rails |
-| ⏸ Hold decision | Rate below threshold, monitoring continues |
-| 📊 FX approaching threshold | Heads-up before action |
-| ⚠️ Anomaly detected | Execution paused, review required |
-| 🛑 Critical halt | Agent 0 emergency stop |
-
-**Example confirmation message:**
-```
-🔔 CounterAgent wants to swap
-800 EURC → USDC @ 1.0812
-Saves $4.20 vs Stripe FX · Fee 0.05%
-
-Reply ✅ YES to confirm
-Reply ❌ NO to cancel
-Auto-executes in 15 min if no reply (auto mode only)
+  User --> Browser
+  Browser --> A0
+  A0 <-->|AXL messages and MCP calls| AXL
+  AXL <-->|route to monitor| A1
+  AXL <-->|route to decision| A2
+  AXL <-->|route to execution| A3
+  AXL <-->|route to reporting| A4
+  A1 <-->|read policy and identities| ENS
+  A2 <-->|decision payload| A1
+  A3 <-->|quote, approval, swap data| UNI
+  A3 <-->|bounded execution path| Vault
+  A4 --> Storage
+  A4 --> Telegram
+  Telegram --> User
 ```
 
----
+### Agent communication sequence
 
-## Safety & Guardrails
+```mermaid
+sequenceDiagram
+  participant App as App dashboard
+  participant A0 as Treasury Orchestrator
+  participant A1 as ENS Monitor
+  participant ENS as ENS records
+  participant A2 as Risk Decision Engine
+  participant A3 as Uniswap Execution Agent
+  participant UNI as Uniswap
+  participant A4 as Proof Reporting Agent
+  participant User as Merchant
 
-CounterAgent is an *autonomous-within-limits* agent. Every guardrail is set by the merchant in their ENS config — the agent cannot exceed them under any circumstances.
-
-### Autopilot Treasury Vault
-
-The first Autopilot Vault slice adds a merchant-owned, non-custodial contract foundation in
-`Contracts/src/CounterAgentTreasuryVault.sol` plus `CounterAgentTreasuryVaultFactory.sol`. The merchant owns the vault, deposits ERC20 funds
-directly, and can revoke policy or withdraw at any time. A0 only prepares a draft policy intent from
-`POST /vault/plan`; it does not receive keys, custody funds, or require a deployed vault address.
-For no-human-in-the-loop execution, the intended authorized executor is A3 (`A3-Uniswap-SwapExecution`)
-through the configured `EXECUTION_AGENT_ADDRESS`, not the web app or A0 server.
-
-The vault enforces the merchant's bounded permission on-chain before agent execution:
-
-- approved stablecoin allowlist: Base (USDC, EURC, USDT) and Celo (cUSD, cEUR, cREAL, cKES, cCOP, cGHS)
-- approved target allowlist, for example a future Uniswap adapter or KeeperHub target
-- `maxTradeAmount`
-- `dailyLimit`
-- `maxSlippageBps`
-- `expiresAt`
-- active or revoked policy state
-
-A factory creates one deterministic minimal-proxy/clone vault per merchant wallet. We will deploy one factory per supported testnet first: Base Sepolia and Celo Sepolia; mainnet follows after review. The first implementation intentionally uses a generic whitelisted `executeCall` guard rather than a
-direct router integration. This keeps the custody and policy boundary auditable while leaving room
-for a dedicated swap adapter in a later slice.
-
-**What CounterAgent can do:**
-- Swap between approved stablecoins on Base (USDC · EURC · USDT) and Celo (cUSD · cEUR · cREAL · cKES · cCOP · cGHS)
-- Read your ENS configuration at runtime
-- Send Telegram alerts and confirmation requests
-- Log every decision and outcome to 0G Storage
-
-**What CounterAgent can never do:**
-- Send funds to any wallet outside the merchant's own address
-- Swap above the `max_swap_amount` per transaction
-- Exceed the `daily_limit` across all swaps in 24 hours
-- Execute if slippage exceeds `max_slippage`
-- Execute in `strict` mode without an explicit Telegram YES
-
-**Circuit breakers — Agent 0 halts the pipeline if:**
-- The live rate deviates more than 2% from the 7-day average (anomaly detection)
-- 3 consecutive execution failures occur
-- Slippage on the proposed swap exceeds the merchant's configured maximum
-- No valid ENS config is found for the wallet
-
-All halts are logged to 0G Storage with timestamp and reason. The merchant receives a 🛑 Telegram alert and must manually resume.
-
----
-
-## How It Works — Step by Step
-
-1. Merchant wallet receives USDC, EURC, or USDT on Base
-2. Coordinator Node (Agent 0) initiates pipeline over Gensyn AXL mesh
-3. Monitor Node (Agent 1) reads ENS text records for merchant config
-4. Monitor Node polls Uniswap v3 pool rates continuously via AXL
-5. When spread exceeds threshold → AXL message sent to Analyst Node
-6. Analyst Node (Agent 2) scores: FX rate × swap fee × risk tolerance → HOLD or CONVERT
-7. If CONVERT → x402 micropayment triggers Action Node (Agent 3)
-8. Agent 3 submits swap via Uniswap v3 on Base or Celo; enforces guardrails before execution
-9. x402 micropayment triggers Agent 4 (Reporting) on Action Node
-10. Agent 4 writes decision + result to 0G Storage
-11. Agent 4 fires Telegram alert to merchant
-12. Completion reported back to Coordinator Node (Agent 0) via AXL
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Agent Framework | Claude Agent SDK (Anthropic) |
-| AI Models | Claude Sonnet 4.6 |
-| Networks | Base (Ethereum L2) · Celo |
-| Agent Transport | Gensyn AXL (encrypted P2P mesh · 4 nodes) |
-| Inter-Agent Payments | x402 micropayments (on-chain settlement) |
-| Swap Execution | Uniswap v3 |
-| Config Store | ENS Text Records (on-chain) |
-| Audit Log | 0G Storage |
-| Merchant Alerts | Telegram Bot API |
-| Frontend | React + TypeScript + Vite |
-| Stablecoins | USDC · EURC · USDT (Base) · cUSD · cEUR · cKES · cGHS · eXOF (Celo) |
-
----
-
-## Supported Stablecoins
-
-CounterAgent operates on both Base and Celo, giving merchants access to global and regional stablecoins.
-
-**Base**
-
-| Token | Issuer | Peg |
-|---|---|---|
-| USDC | Circle | US Dollar |
-| EURC | Circle | Euro |
-| USDT | Tether | US Dollar |
-
-**Celo**
-
-| Token | Issuer | Peg |
-|---|---|---|
-| cUSD | Mento | US Dollar |
-| cEUR | Mento | Euro |
-| cKES | Mento | Kenyan Shilling |
-| cGHS | Mento | Ghanaian Cedi |
-| eXOF | Mento | West African CFA Franc |
-
-> **Why both networks?** Base gives us deep USDC/EURC liquidity and x402 settlement. Celo gives us Mento-issued regional stablecoins — cKES, cGHS, eXOF — that are essential for African merchants receiving payments in local currency pegs. CounterAgent is the only autonomous treasury tool that bridges both.
-
----
-
-## Telegram Alerts
-
-Merchants store their Telegram chat ID in their ENS text record (`counteragent.telegram_chat_id`). Zero extra setup. Example alert:
-
-```
-✅ CounterAgent executed swap
-800 EURC → USDC @ 1.0812
-Saved $4.20 vs Stripe FX
-Fee: 0.05% | Logged to 0G
+  App->>A0: Start workflow with wallet, token pair, amount
+  A0->>A1: AXL/MCP lookup merchant config
+  A1->>ENS: Read policy, profile, and agent mesh records
+  ENS-->>A1: Merchant config and agent identities
+  A1-->>A0: Normalized treasury config
+  A0->>A3: AXL/MCP request route preview or quote
+  A3->>UNI: Trading API quote and approval check
+  UNI-->>A3: Route or no-route response
+  A3-->>A0: Quote plus routeDiagnostics
+  A0->>A2: AXL/MCP evaluate decision with config and diagnostics
+  A2-->>A0: HOLD or CONVERT with confidence and reason
+  alt Convert is approved by policy
+    A0->>A3: Build execution transaction or vault call
+    A3-->>A0: Wallet-signable calldata or vault execution result
+    A0->>A4: Publish report payload
+    A4-->>User: Alert with decision and report pointer
+  else Hold or route not strong enough
+    A0->>A4: Publish hold report
+    A4-->>User: Monitoring continues alert
+  end
 ```
 
----
+### User interaction sequence
 
-## Mobile UI
+```mermaid
+sequenceDiagram
+  participant User as Merchant
+  participant App as CounterAgent app
+  participant Wallet as Wallet
+  participant ENS as ENS
+  participant A0 as Orchestrator
+  participant Agents as Agent mesh
+  participant Telegram as Telegram
 
-CounterAgent is mobile-first — the natural entry point is the Telegram notification on your phone.
-
-**Color palette:** Flamingo `#FF5CB9` (primary) · Citrus `#FF9700` (accent) · Charcoal `#231F20` (text)
-
-<p align="center">
-  <a href="https://admirable-panda-65cc61.netlify.app/"><strong>📱 View all 6 screens — Live Mockup →</strong></a>
-</p>
-
-**6 screens:** Landing · Dashboard · Onboarding · Analytics · Alerts · Settings
-
-| Screen | Description |
-|---|---|
-| Landing | Hero, CTA, Base / Celo network selector, partner badges (Uniswap · Gensyn AXL · ENS · 0G) |
-| Dashboard | Balance hero card, token holdings, savings vs Stripe FX, guardrails status, agent activity log |
-| Onboarding | 6-step wizard: ENS wallet → network + stablecoin → FX threshold → guardrails (spending cap, daily limit, slippage, confirm mode) → Telegram ID → review |
-| Analytics | Cumulative savings chart, stats grid, pair breakdown by volume (Base + Celo pools) |
-| Alerts | Telegram status banner, pending swap confirmation (YES / NO), full alert feed with severity badges |
-| Settings | Wallet card, treasury guardrail config with ENS field names, network toggle, notification preferences |
-
----
-
-## Quick Start
-
-```bash
-git clone https://github.com/JulioMCruz/CounterAgent
-cd CounterAgent
-npm install
-cp .env.example .env
-# Add API keys: Anthropic, Telegram Bot, 0G
-npm run dev
+  User->>App: Connect wallet
+  App->>Wallet: Request account and network
+  Wallet-->>App: Wallet address
+  App->>A0: Resolve session
+  A0->>ENS: Resolve merchant ENS config
+  ENS-->>A0: Profile, policy, notification, agent mesh
+  A0-->>App: Registered merchant dashboard state
+  User->>App: Run treasury workflow
+  App->>A0: Workflow request
+  A0->>Agents: Coordinate monitor, decision, execution, reporting
+  Agents-->>A0: Config, quote, decision, report
+  A0-->>App: Route intelligence and workflow result
+  Agents->>Telegram: Send report or alert
+  Telegram-->>User: Outcome notification
 ```
 
-### Environment Variables
+## ENS: from names to agent identity
 
-```env
-ANTHROPIC_API_KEY=
-TELEGRAM_BOT_TOKEN=
-ZERO_G_API_KEY=
-BASE_RPC_URL=
-CELO_RPC_URL=
-```
+CounterAgent uses ENS in two layers.
 
----
+### Merchant policy records
 
-## Prizes Targeting
+| ENS record | Purpose |
+| --- | --- |
+| `counteragent.wallet` | Merchant wallet |
+| `counteragent.fx_threshold_bps` | Minimum spread before conversion |
+| `counteragent.risk_tolerance` | Conservative, moderate, or aggressive policy |
+| `counteragent.preferred_stablecoin` | Preferred output asset |
+| `counteragent.telegram_chat_id` | Alert destination |
+| `counteragent.registry` | Merchant registry contract |
+| `counteragent.subnames` | Agent and service subnames |
 
-| Sponsor | Prize | Integration |
-|---|---|---|
-| Uniswap Foundation | $5,000 | Swap execution via Uniswap v3 on Base · EURC/USDC · USDT/USDC · USDC/EURC |
-| Gensyn | $5,000 | AXL encrypted P2P mesh as agent transport layer across 4 distinct nodes |
-| ENS | $4,000 | Best ENS Integration for AI Agents · on-chain merchant config + guardrails via 8 ENS text records |
-| 0G Labs | — | Immutable decentralised audit log for every decision and swap |
+### Agent identity mesh
 
----
+| ENS record | Purpose |
+| --- | --- |
+| `counteragent.agent_mesh` | Compact JSON index of all role-based agents |
+| `counteragent.agent_manifest_uri` | Optional IPFS or HTTPS pointer to full manifest |
+| `counteragent.agent.role` | Machine-readable agent role |
+| `counteragent.agent.display` | Human-readable role name |
+| `counteragent.agent.wallet` | Agent wallet address |
+| `counteragent.agent.service` | Service route name |
+| `counteragent.agent.endpoint` | Optional public endpoint |
+| `counteragent.agent.capabilities` | Agent capability list |
+| `counteragent.agent.protocols` | Protocols used by the agent |
 
-## Team
+Supporting files:
 
-Built at **ETHGlobal Open Agents 2026** — April 24 to May 3, 2026
+- `ENS/agent-identities.json`
+- `ENS/prepare-agent-ens-records.mjs`
+- `ENS/test-ens-records-local.sh`
 
-| Name | Role | Contact |
-|---|---|---|
-| Abena | Product & Research | [@abena_eth](https://twitter.com/abena_eth) · abena@bluewin.ch |
-| Julio M Cruz | Engineering | [GitHub: JulioMCruz](https://github.com/JulioMCruz) |
+## Uniswap route intelligence
 
----
+CounterAgent's execution path is Uniswap-first and explainable.
 
-## Contact
+A3 attempts Uniswap Trading API quotes first using deterministic routing preferences. Quote responses include a `routeDiagnostics` object so the app and reports can show:
 
-- Twitter/X: [@abena_eth](https://twitter.com/abena_eth)
-- GitHub: [JulioMCruz/CounterAgent](https://github.com/JulioMCruz/CounterAgent)
-- ETHGlobal: [Open Agents 2026](https://ethglobal.com/events/openagents)
+- route source and routing preference
+- chain and token addresses
+- protocols used, including V4 and V3
+- amount out, minimum amount out, and slippage
+- gas estimate and gas fee when available
+- price impact and source
+- approval requirement and target
+- route freshness and quote validity
+- fallback reason if no API route is available
 
+When a testnet route is unavailable, CounterAgent does not hide that fact. It displays the attempted API path and falls back to an explicit direct or dry-run route. This is important for technical review because the product is honest about market liquidity while still proving the workflow.
 
-## Next Mainnet Step
+Supporting files:
 
-Before mainnet, rename the public ENS surface from `counteragents.eth` to `counteragents.eth`/`counteragents.eth` in product copy and ENS provisioning configuration, then deploy factories on Base and Celo mainnet.
+- `Agents/A3-Execution/Plugin-Uniswap-SwapExecution`
+- `Uniswap/README.md`
+- `Uniswap/pool-research.md`
+- `App/components/dashboard/workflow-evaluation.tsx`
 
-### Upgradeability
+## Gensyn AXL agent transport
 
-All CounterAgent contracts are now aligned to OpenZeppelin upgradeability patterns:
+CounterAgent has a transport mode for real agent-to-agent communication over Gensyn AXL. The workflow can run with HTTP fallback disabled so the route proves AXL is carrying the agent calls.
 
-- `MerchantRegistry`: UUPS upgradeable behind `ERC1967Proxy`.
-- `CounterAgentENSRegistrar`: UUPS upgradeable behind `ERC1967Proxy`.
-- `CounterAgentTreasuryVaultFactory`: UUPS upgradeable behind `ERC1967Proxy`.
-- Merchant vaults: `BeaconProxy` instances owned/configured by the merchant, with implementation upgrades routed through an OpenZeppelin `UpgradeableBeacon` owned by the factory.
+Validated surfaces include:
 
-## Testnet Deployments — Counter Agents
+- AXL topology checks
+- send and receive checks between agent nodes
+- MCP-style calls to A1, A2, A3, and A4 through AXL routes
+- A0 workflow execution in `GENSYN_AXL_MODE=transport`
+- dashboard status panel for AXL mode, peers, and recent messages
 
-Owner wallet: `0x987D68A59a5A2Ff39B723abFaD6678fd22D3510b`  
-Execution agent / A3: `0xDaa23fF7820b92eA5D78457adc41Cab1af97EbbC`  
+Supporting files:
+
+- `Gensyn/README.md`
+- `Gensyn/AXL-EC2-RUNBOOK.md`
+- `Gensyn/test-real-axl-p2p.sh`
+- `Gensyn/test-real-axl-counteragent-workflow.sh`
+- `Agents/test-all-agent-axl-workflow.sh`
+- `App/components/dashboard/axl-transport-status.tsx`
+
+## Safety model
+
+CounterAgent is autonomous within merchant-defined limits.
+
+| Control | How it is enforced |
+| --- | --- |
+| No server custody by default | Browser wallet signs user transactions; server-side custody remains disabled unless vault mode is explicit |
+| Merchant-owned vault | Vault is owned by the merchant and can be revoked or withdrawn from by the merchant |
+| Policy bounds | Vault policy controls token allowlist, target allowlist, max trade amount, daily limit, slippage, expiration, and active state |
+| ENS policy visibility | Merchant settings are readable as ENS records instead of hidden database rows |
+| Route transparency | A3 returns route diagnostics before execution |
+| Reporting | A4 creates a report and alert path for workflow outcomes |
+
+## App review path
+
+For a reviewer, the fastest path is:
+
+1. Open the app and connect a registered wallet.
+2. Confirm the ENS Merchant Profile card resolves merchant records.
+3. Review the ENS Agent Identity Mesh card for role-based agent discovery.
+4. Run the dashboard workflow dry-run.
+5. Inspect Uniswap Route Intelligence for quote source, gas, price impact, approval status, and fallback reason.
+6. Check Gensyn AXL Transport for peer status and recent messages.
+7. Review Autopilot Vault for the non-custodial policy model.
+8. Check Alerts and Analytics for the reporting trail.
+
+## Current app surfaces
+
+| Surface | Purpose |
+| --- | --- |
+| Landing | Product narrative and wallet entry |
+| Onboarding | Merchant registration, ENS setup, Telegram setup, profile records |
+| Dashboard | Live workflow, ENS profile, agent identity mesh, AXL status, route intelligence, vault plan |
+| Analytics | Savings and volume aggregates from workflow history |
+| Alerts | Decision, execution, and report alerts |
+| Settings | Merchant policy, ENS media/profile records, notification settings |
+
+The app is implemented with Next.js, React, TypeScript, Tailwind CSS, wagmi, viem, and Dynamic wallet tooling.
+
+## Testnet deployments
+
+Owner wallet: `0x987D68A59a5A2Ff39B723abFaD6678fd22D3510b`
+
+Execution agent / A3: `0xDaa23fF7820b92eA5D78457adc41Cab1af97EbbC`
+
 ENS parent: `counteragents.eth`
 
 | Network | Contract | Address |
@@ -415,4 +364,91 @@ ENS parent: `counteragents.eth`
 | Celo Sepolia | TreasuryVault Beacon | `0xc6A8506cfDd83F4E8739D7aB18fCEABfa35fa97A` |
 | Celo Sepolia | TreasuryVault Implementation | `0x048F81D4C1bB6256AB17514DD9fc6897BeD91c26` |
 
-Full machine-readable deployment metadata: `Contracts/deployments/counteragent-testnet.json`. Vault architecture notes live in `Vault/README.md`.
+Full deployment metadata: `Contracts/deployments/counteragent-testnet.json`.
+
+## Local checks
+
+Run focused checks:
+
+```bash
+bash ENS/test-ens-records-local.sh
+bash Tests/test-counteragent-services-local.sh
+```
+
+Build key plugins:
+
+```bash
+npm run build --prefix Agents/A0-Orchestrator/Plugin-CounterAgent
+npm run build --prefix Agents/A1-Monitor/Plugin-ENS-MerchantConfig
+npm run build --prefix Agents/A2-Decision/Plugin-CounterAgent-DecisionScoring
+npm run build --prefix Agents/A3-Execution/Plugin-Uniswap-SwapExecution
+npm run build --prefix Agents/A4-Reporting/Plugin-CounterAgent
+```
+
+Build the app:
+
+```bash
+npm run lint --prefix App
+npm run build --prefix App
+```
+
+## Repository map
+
+| Path | Description | Review focus |
+| --- | --- | --- |
+| `App/` | Next.js web app for onboarding, dashboard, analytics, alerts, and settings | Shows the live product surface and workflow evidence |
+| `App/components/dashboard/` | Dashboard cards for ENS profile, ENS agent mesh, AXL transport, route intelligence, vault, activity, and KPIs | Main UI review area |
+| `App/lib/a0.ts` | Frontend API client and shared response types for A0, ENS records, workflow, vault, dashboard state, and AXL status | Confirms app data contracts |
+| `Agents/A0-Orchestrator/Plugin-CounterAgent/` | App-facing orchestrator and workflow coordinator | Starts workflows and routes calls to A1-A4 |
+| `Agents/A1-Monitor/Plugin-ENS-MerchantConfig/` | ENS monitor/config plugin | Reads merchant ENS records and prepares agent identity records |
+| `Agents/A2-Decision/Plugin-CounterAgent-DecisionScoring/` | Decision scoring service | Converts route diagnostics and policy into HOLD or CONVERT |
+| `Agents/A3-Execution/Plugin-Uniswap-SwapExecution/` | Uniswap quote, approval, swap, and route diagnostics service | Core Uniswap integration |
+| `Agents/A4-Reporting/Plugin-CounterAgent/` | Report publishing service | Creates workflow report payloads and storage pointers |
+| `Agents/A4-Reporting/Plugin-Telegram-Alerts/` | Telegram alert service | Sends merchant notifications after reports |
+| `Agents/openclaw/` | OpenClaw deployment templates and scripts | Shows how services are packaged and run |
+| `Contracts/` | Solidity contracts, Foundry tests, deployment scripts, and deployment metadata | Merchant registry, ENS registrar, vault factory, and vault policy layer |
+| `ENS/` | ENS documentation, agent identity manifest, record preparation script, local ENS tests | ENS merchant config and role-based agent identity mesh |
+| `Gensyn/` | AXL transport scripts, real-node checks, and runbook | Verifies agent communication over Gensyn AXL |
+| `Uniswap/` | Uniswap setup, pool tooling, route research, and local pool docs | Explains route setup and fallback path |
+| `Vault/` | Non-custodial vault architecture notes | Explains bounded autonomous execution model |
+| `Tests/` | Local workflow and service smoke tests | Fast reproducible validation before PR review |
+| `docs/` | Internal project notes and design context | Supporting design material; not required for app operation |
+
+### Directory relationship diagram
+
+```mermaid
+flowchart LR
+  App[App] --> A0[Agents/A0]
+  A0 --> A1[Agents/A1 ENS]
+  A0 --> A2[Agents/A2 Decision]
+  A0 --> A3[Agents/A3 Uniswap]
+  A0 --> A4[Agents/A4 Reporting]
+  A1 --> ENSDIR[ENS]
+  A3 --> UNIDIR[Uniswap]
+  A4 --> Alerts[Telegram plugin]
+  A0 --> GENSYN[Gensyn]
+  App --> Contracts[Contracts]
+  Contracts --> Vault[Vault]
+  Tests[Tests] --> App
+  Tests --> A0
+  Tests --> A1
+  Tests --> A2
+  Tests --> A3
+  Tests --> A4
+```
+
+## Why this can become a company
+
+CounterAgent starts with a specific pain: merchants accepting stablecoins need treasury decisions that are faster and safer than manual conversion. The same architecture can expand into broader autonomous finance operations:
+
+- recurring treasury rebalancing
+- cross-chain stablecoin policy routing
+- agent-to-agent payment operations
+- compliance-aware audit trails
+- merchant-controlled automation marketplaces
+
+The defensible layer is not a single swap. It is the combination of merchant-owned policy, verifiable agent identity, explainable route intelligence, and auditable execution.
+
+## License
+
+MIT
