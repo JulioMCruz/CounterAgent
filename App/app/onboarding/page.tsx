@@ -89,11 +89,14 @@ export default function OnboardingPage() {
 
   const [merchantSlug, setMerchantSlug] = useState("")
   const [threshold, setThreshold] = useState([0.5])
-  const [riskTolerance, setRiskTolerance] = useState<typeof riskLevels[number]>("Moderate")
+  const [thresholdTouched, setThresholdTouched] = useState(false)
+  const [riskTolerance, setRiskTolerance] = useState<typeof riskLevels[number] | null>(null)
   const [telegramChat, setTelegramChat] = useState("")
-  const [preferredCoin, setPreferredCoin] = useState<typeof stablecoins[number]>("USDC")
+  const [telegramReviewed, setTelegramReviewed] = useState(false)
+  const [preferredCoin, setPreferredCoin] = useState<typeof stablecoins[number] | null>(null)
   const [currentStep, setCurrentStep] = useState(0)
-  const [selectedNetwork, setSelectedNetwork] = useState<"Base" | "Celo">("Base")
+  const [maxUnlockedStep, setMaxUnlockedStep] = useState(0)
+  const [selectedNetwork, setSelectedNetwork] = useState<"Base" | "Celo" | null>(null)
   const [maxPerSwap, setMaxPerSwap] = useState("500")
   const [dailyLimit, setDailyLimit] = useState("2000")
   const [maxSlippage, setMaxSlippage] = useState("0.3")
@@ -122,15 +125,21 @@ export default function OnboardingPage() {
 
   const isStepReady = (stepId: typeof onboardingSteps[number]["id"]) => {
     if (stepId === "ens") return Boolean(address && merchantSlug)
-    if (stepId === "network") return connectedToTargetChain
+    if (stepId === "network") return Boolean(selectedNetwork && connectedToTargetChain)
     if (stepId === "token") return Boolean(preferredCoin)
     if (stepId === "guardrails") return Boolean(riskTolerance)
-    if (stepId === "fxrate") return threshold[0] >= 0
-    return Boolean(telegramChat)
+    if (stepId === "fxrate") return thresholdTouched
+    return telegramReviewed
   }
 
   const canGoNext = isStepReady(activeStep.id)
-  const completedSteps = onboardingSteps.filter((step) => isStepReady(step.id)).length
+  const completedSteps = maxUnlockedStep
+
+  function goToNextStep() {
+    const nextStep = Math.min(onboardingSteps.length - 1, currentStep + 1)
+    setMaxUnlockedStep((step) => Math.max(step, nextStep))
+    setCurrentStep(nextStep)
+  }
 
 
   async function handleSwitchNetwork() {
@@ -190,8 +199,8 @@ export default function OnboardingPage() {
           chainId: activeChain.id,
           ensName: merchantEnsName,
           fxThresholdBps,
-          riskTolerance,
-          preferredStablecoin: preferredCoin,
+          riskTolerance: riskTolerance ?? "Moderate",
+          preferredStablecoin: preferredCoin ?? "USDC",
           telegramChat,
         })
         setPreparedRegistration(prepared)
@@ -227,8 +236,8 @@ export default function OnboardingPage() {
         ensLabel: merchantSlug,
         ensName: merchantEnsName,
         fxThresholdBps,
-        riskTolerance,
-        preferredStablecoin: preferredCoin,
+        riskTolerance: riskTolerance ?? "Moderate",
+        preferredStablecoin: preferredCoin ?? "USDC",
         telegramChat,
         registrationSignature,
         registrationDeadline: prepared.message.deadline,
@@ -300,11 +309,11 @@ export default function OnboardingPage() {
               </div>
               <div className="text-right">
                 <p className="text-2xl font-black text-primary">{completedSteps}/{onboardingSteps.length}</p>
-                <p className="text-[11px] text-muted-foreground">ready</p>
+                <p className="text-[11px] text-muted-foreground">complete</p>
               </div>
             </div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary">
-              <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${Math.max(8, (completedSteps / onboardingSteps.length) * 100)}%` }} />
+              <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${(completedSteps / onboardingSteps.length) * 100}%` }} />
             </div>
           </div>
         </div>
@@ -318,26 +327,28 @@ export default function OnboardingPage() {
         <div className="rounded-3xl border border-border bg-card px-3 py-4 shadow-sm lg:px-5">
           <div className="flex items-start justify-between gap-1">
             {onboardingSteps.map((step, index) => {
-              const ready = isStepReady(step.id)
+              const complete = index < maxUnlockedStep
+              const unlocked = index <= maxUnlockedStep
               const selected = index === currentStep
               return (
                 <button
                   key={step.id}
                   type="button"
-                  onClick={() => setCurrentStep(index)}
-                  className="group relative flex min-w-0 flex-1 flex-col items-center gap-2 text-center"
+                  onClick={() => unlocked && setCurrentStep(index)}
+                  disabled={!unlocked}
+                  className="group relative flex min-w-0 flex-1 flex-col items-center gap-2 text-center disabled:cursor-not-allowed"
                 >
                   {index < onboardingSteps.length - 1 && (
-                    <span className={`absolute left-[calc(50%+18px)] top-4 h-0.5 w-[calc(100%-36px)] ${ready ? "bg-primary" : "bg-border"}`} />
+                    <span className={`absolute left-[calc(50%+18px)] top-4 h-0.5 w-[calc(100%-36px)] ${complete ? "bg-primary" : "bg-border"}`} />
                   )}
                   <span className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-full text-xs font-black transition-all ${
-                    ready
+                    complete
                       ? "bg-emerald-500 text-white"
                       : selected
                         ? "bg-primary text-primary-foreground shadow-[0_0_18px_rgba(236,72,153,0.35)]"
                         : "bg-secondary text-muted-foreground"
                   }`}>
-                    {ready ? <CheckCircle2 className="h-4 w-4" /> : index + 1}
+                    {complete ? <CheckCircle2 className="h-4 w-4" /> : index + 1}
                   </span>
                   <span className={`truncate text-[10px] font-bold ${selected ? "text-primary" : "text-muted-foreground"}`}>{step.label}</span>
                 </button>
@@ -442,7 +453,7 @@ export default function OnboardingPage() {
                   <div className="grid gap-5">
                     <div>
                       <h3 className="text-lg font-black text-foreground">Preferred Stablecoin</h3>
-                      <p className="text-sm text-muted-foreground">{selectedNetwork} target conversion token</p>
+                      <p className="text-sm text-muted-foreground">Choose the token the agent should preserve after conversion.</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {(["USDC", "EURC", "USDT"] as const).map((coin) => (
@@ -470,7 +481,7 @@ export default function OnboardingPage() {
                             key={label}
                             type="button"
                             disabled={!enabled}
-                            onClick={() => { setSelectedNetwork("Celo"); setPreparedRegistration(null); setPreferredCoin(value as typeof stablecoins[number]) }}
+                            onClick={() => { if (!enabled) return; setSelectedNetwork("Celo"); setPreparedRegistration(null); setPreferredCoin(value as typeof stablecoins[number]) }}
                             className="rounded-xl border border-border bg-background px-3 py-2 text-xs font-bold text-foreground hover:border-primary/40 disabled:opacity-60"
                           >
                             <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full bg-emerald-400" />{label}
@@ -540,7 +551,7 @@ export default function OnboardingPage() {
                     <label className="mb-3 block text-sm font-semibold text-foreground">FX conversion threshold</label>
                     <Slider
                       value={threshold}
-                      onValueChange={(value) => { setPreparedRegistration(null); setThreshold(value) }}
+                      onValueChange={(value) => { setPreparedRegistration(null); setThresholdTouched(true); setThreshold(value) }}
                       max={2}
                       min={0}
                       step={0.1}
@@ -566,10 +577,19 @@ export default function OnboardingPage() {
                       <Input
                         placeholder="numeric chat_id after /start"
                         value={telegramChat}
-                        onChange={(e) => { setPreparedRegistration(null); setTelegramChat(e.target.value) }}
+                        onChange={(e) => { setPreparedRegistration(null); setTelegramReviewed(true); setTelegramChat(e.target.value) }}
                         className="bg-secondary"
                       />
                       <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">Open the bot link, press /start, then store the numeric chat_id for A4 report alerts.</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button type="button" variant={telegramReviewed && !telegramChat ? "default" : "outline"} onClick={() => { setPreparedRegistration(null); setTelegramReviewed(true); setTelegramChat("") }} className="rounded-xl">
+                        Review and skip
+                      </Button>
+                      <Button type="button" variant={telegramReviewed && telegramChat ? "default" : "outline"} onClick={() => setTelegramReviewed(true)} disabled={!telegramChat} className="rounded-xl">
+                        Use Telegram alerts
+                      </Button>
                     </div>
 
                     <div className="grid gap-2">
@@ -607,11 +627,11 @@ export default function OnboardingPage() {
               <div className="mt-4 grid gap-2">
                 {[
                   ["ENS", merchantSlug ? `${merchantSlug}.${ensParent}` : `pending.${ensParent}`],
-                  ["Network", `${selectedNetwork} · ${activeChain.name}`],
-                  ["Token", preferredCoin],
-                  ["Guardrails", `${riskTolerance} · ${maxPerSwap} max`],
-                  ["FX Rate", `${threshold[0].toFixed(1)}% trigger`],
-                  ["Telegram", telegramChat || "not connected"],
+                  ["Network", selectedNetwork ? `${selectedNetwork} · ${activeChain.name}` : "choose network"],
+                  ["Token", preferredCoin ?? "choose token"],
+                  ["Guardrails", riskTolerance ? `${riskTolerance} · ${maxPerSwap} max` : "review limits"],
+                  ["FX Rate", thresholdTouched ? `${threshold[0].toFixed(1)}% trigger` : "review trigger"],
+                  ["Telegram", telegramReviewed ? (telegramChat || "skipped") : "review alerts"],
                   ["Integrations", "Uniswap · ENS · Gensyn"],
                 ].map(([label, value]) => (
                   <div key={label} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-secondary/50 px-3 py-2">
@@ -634,14 +654,14 @@ export default function OnboardingPage() {
             Back
           </Button>
           {currentStep < onboardingSteps.length - 1 ? (
-            <Button type="button" disabled={!canGoNext} onClick={() => setCurrentStep((step) => Math.min(onboardingSteps.length - 1, step + 1))} className="rounded-xl">
+            <Button type="button" disabled={!canGoNext} onClick={goToNextStep} className="rounded-xl">
               Continue to {onboardingSteps[currentStep + 1].label}
             </Button>
           ) : (
             <Button
               size="lg"
               onClick={handleActivate}
-              disabled={isActivating || isSigning || !address || !merchantSlug || !connectedToTargetChain}
+              disabled={isActivating || isSigning || !address || !merchantSlug || !connectedToTargetChain || maxUnlockedStep < onboardingSteps.length - 1 || !telegramReviewed}
               className="rounded-xl bg-primary px-8 font-bold text-primary-foreground shadow-lg hover:bg-primary/90 disabled:opacity-60"
             >
               {isActivating || isSigning ? (
