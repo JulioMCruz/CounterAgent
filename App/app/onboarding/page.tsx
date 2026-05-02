@@ -178,6 +178,11 @@ export default function OnboardingPage() {
       setError("Merchant registry address is not configured.")
       return
     }
+    if (selectedNetwork !== "Base") {
+      setError("Celo onboarding is visible as an expansion path, but the active merchant registry is currently on Base Sepolia. Select Base to submit this form.")
+      setCurrentStep(1)
+      return
+    }
 
     try {
       setIsActivating(true)
@@ -407,23 +412,29 @@ export default function OnboardingPage() {
                       <p className="text-sm text-muted-foreground">Your treasury will run on this chain</p>
                       <div className="mt-3 grid grid-cols-2 gap-3">
                         {[
-                          { name: "Base" as const, title: "Base", subtitle: "Ethereum L2", caption: "Low fees", tone: "border-blue-500 bg-blue-50 text-blue-700" },
-                          { name: "Celo" as const, title: "Celo", subtitle: "Mobile-first", caption: "African stablecoins", tone: "border-yellow-500 bg-yellow-50 text-yellow-700" },
+                          { name: "Base" as const, title: "Base", subtitle: "Ethereum L2", caption: "Active registry", tone: "border-blue-500 bg-blue-50 text-blue-700", enabled: true },
+                          { name: "Celo" as const, title: "Celo", subtitle: "Mobile-first", caption: "Coming next", tone: "border-yellow-500 bg-yellow-50 text-yellow-700", enabled: false },
                         ].map((network) => {
                           const selected = selectedNetwork === network.name
                           return (
                             <button
                               key={network.name}
                               type="button"
-                              onClick={() => setSelectedNetwork(network.name)}
-                              className={`rounded-2xl border-2 px-3 py-4 text-center transition-all ${selected ? network.tone : "border-border bg-background hover:border-primary/40"}`}
+                              disabled={!network.enabled}
+                              onClick={() => {
+                                if (!network.enabled) return
+                                setPreparedRegistration(null)
+                                setPreferredCoin(null)
+                                setSelectedNetwork(network.name)
+                              }}
+                              className={`rounded-2xl border-2 px-3 py-4 text-center transition-all disabled:cursor-not-allowed disabled:opacity-55 ${selected ? network.tone : network.enabled ? "border-border bg-background hover:border-primary/40" : "border-border bg-secondary"}`}
                             >
                               <p className="text-2xl">{network.name === "Base" ? "◇" : "🌿"}</p>
                               <p className="mt-1 text-sm font-black">{network.title}</p>
                               <p className="text-xs text-muted-foreground">{network.subtitle}</p>
                               <p className="text-xs text-muted-foreground">{network.caption}</p>
                               <span className={`mt-3 inline-flex w-full justify-center rounded-full px-3 py-1.5 text-xs font-black ${selected ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"}`}>
-                                {selected ? "Selected ✓" : "Select"}
+                                {selected ? "Selected ✓" : network.enabled ? "Select" : "Disabled"}
                               </span>
                             </button>
                           )
@@ -434,6 +445,7 @@ export default function OnboardingPage() {
                     <div className="rounded-2xl border border-border bg-secondary px-4 py-4">
                       <p className="text-sm font-bold text-foreground">Active registry chain: {activeChain.name}</p>
                       <p className="mt-1 text-xs text-muted-foreground">Chain ID {activeChain.id} · Merchant registry {merchantRegistryConfigured ? "configured" : "missing"}</p>
+                      <p className="mt-2 text-xs text-muted-foreground">Celo is shown for product context, but submit is enabled only for the active Base registry.</p>
                     </div>
                     {address && !connectedToTargetChain ? (
                       <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4 text-center">

@@ -445,7 +445,9 @@ export async function startOnboarding(input: OnboardingRequest) {
   })
 
   if (!res.ok) {
-    throw new Error(`Orchestrator onboarding failed: ${res.status}`)
+    const payload = await res.json().catch(() => null)
+    const detail = payload && typeof payload === "object" && "error" in payload ? ` (${String(payload.error)})` : ""
+    throw new Error(`Orchestrator onboarding failed: ${res.status}${detail}`)
   }
 
   return res.json() as Promise<OnboardingResponse>
@@ -459,7 +461,9 @@ export async function prepareOnboarding(input: OnboardingPrepareRequest) {
   })
 
   if (!res.ok) {
-    throw new Error(`Orchestrator onboarding prepare failed: ${res.status}`)
+    const payload = await res.json().catch(() => null)
+    const detail = payload && typeof payload === "object" && "error" in payload ? ` (${String(payload.error)})` : ""
+    throw new Error(`Orchestrator onboarding prepare failed: ${res.status}${detail}`)
   }
 
   return res.json() as Promise<OnboardingPrepareResponse>
