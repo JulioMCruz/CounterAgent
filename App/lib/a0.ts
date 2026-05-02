@@ -164,6 +164,34 @@ export type WorkflowEvaluateRequest = {
   metadata?: Record<string, unknown>
 }
 
+export type AxlStatus = {
+  ok: boolean
+  mode: "off" | "mirror" | "transport" | string
+  nodeConfigured: boolean
+  messagingAdapterConfigured?: boolean
+  peers?: Record<string, boolean>
+  services?: Record<string, string>
+  fallbackToHttp?: boolean
+  topology?: unknown
+  topologyError?: string
+  recentMessages?: {
+    workflowId: string
+    messageId: string
+    sequence: number
+    fromAgent: string
+    toAgent: string
+    messageType: string
+    createdAt: string
+    mode: string
+    axl?: {
+      ok?: boolean
+      transport?: string
+      peerId?: string
+      error?: string
+    }
+  }[]
+}
+
 export type WorkflowEvaluateResponse = {
   ok: boolean
   workflowId?: string
@@ -444,6 +472,16 @@ export async function uploadEnsProfileImage(input: { file: File; kind: "avatar" 
   }
 
   return res.json() as Promise<EnsProfileImageUploadResponse>
+}
+
+export async function fetchAxlStatus() {
+  const res = await fetch(`${orchestratorUrl}/axl/status`, { cache: "no-store" })
+
+  if (!res.ok) {
+    throw new Error(`AXL status failed: ${res.status}`)
+  }
+
+  return res.json() as Promise<AxlStatus>
 }
 
 export async function evaluateWorkflow(input: WorkflowEvaluateRequest) {

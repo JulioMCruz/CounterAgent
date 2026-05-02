@@ -1,0 +1,11 @@
+starting a0
+starting a2
+starting a3
+A0 ready
+A2 ready
+A3 ready
+sending A0 plugin -> A2 plugin
+A2 received message
+sending A0 plugin -> A3 plugin
+A3 received message
+shared Gensyn transport plugin local test passed: shared-plugin-local-1777728910

@@ -91,6 +91,132 @@ services:
       - GENSYN_AXL_AGENT_ID=counteragent-a0
     networks: [agents]
 
+  axl-a0-transport:
+    build: ./Gensyn/Plugin-Gensyn-AXL-Transport
+    container_name: counteragent-axl-a0-transport
+    restart: unless-stopped
+    environment:
+      - PORT=8890
+      - CORS_ORIGIN=https://counteragent.netlify.app,https://counteragent.perkos.xyz,https://orchestrator.counteragent.perkos.xyz
+      - AXL_AGENT_ID=A0-Orchestrator
+      - AXL_AGENT_ROLE=A0
+      - AXL_MODE=${AXL_MODE:-local}
+      - AXL_NODE_URL=${AXL_A0_NODE_URL:-}
+      - AXL_REQUIRE_REAL_NODE=${AXL_REQUIRE_REAL_NODE:-false}
+      - AXL_PEER_A0=${AXL_PEER_A0:-counteragent-a0}
+      - AXL_PEER_A1=${AXL_PEER_A1:-counteragent-a1}
+      - AXL_PEER_A2=${AXL_PEER_A2:-counteragent-a2}
+      - AXL_PEER_A3=${AXL_PEER_A3:-counteragent-a3}
+      - AXL_PEER_A4=${AXL_PEER_A4:-counteragent-a4}
+      - AXL_LOCAL_A0_URL=http://axl-a0-transport:8890
+      - AXL_LOCAL_A1_URL=http://axl-a1-transport:8891
+      - AXL_LOCAL_A2_URL=http://axl-a2-transport:8892
+      - AXL_LOCAL_A3_URL=http://axl-a3-transport:8893
+      - AXL_LOCAL_A4_URL=http://axl-a4-transport:8894
+      - AXL_SERVICE_A2_URL=http://decision-scoring-plugin:8790/mcp
+      - AXL_SERVICE_A3_URL=http://uniswap-swap-plugin:8791/mcp
+      - AXL_SERVICE_A4_URL=http://reporting-plugin:8789/mcp
+    networks: [agents]
+
+  axl-a1-transport:
+    build: ./Gensyn/Plugin-Gensyn-AXL-Transport
+    container_name: counteragent-axl-a1-transport
+    restart: unless-stopped
+    environment:
+      - PORT=8891
+      - CORS_ORIGIN=https://counteragent.netlify.app,https://counteragent.perkos.xyz,https://monitor.counteragent.perkos.xyz
+      - AXL_AGENT_ID=A1-Monitor
+      - AXL_AGENT_ROLE=A1
+      - AXL_MODE=${AXL_MODE:-local}
+      - AXL_NODE_URL=${AXL_A1_NODE_URL:-}
+      - AXL_REQUIRE_REAL_NODE=${AXL_REQUIRE_REAL_NODE:-false}
+      - AXL_PEER_A0=${AXL_PEER_A0:-counteragent-a0}
+      - AXL_PEER_A1=${AXL_PEER_A1:-counteragent-a1}
+      - AXL_PEER_A2=${AXL_PEER_A2:-counteragent-a2}
+      - AXL_PEER_A3=${AXL_PEER_A3:-counteragent-a3}
+      - AXL_PEER_A4=${AXL_PEER_A4:-counteragent-a4}
+      - AXL_LOCAL_A0_URL=http://axl-a0-transport:8890
+      - AXL_LOCAL_A1_URL=http://axl-a1-transport:8891
+      - AXL_LOCAL_A2_URL=http://axl-a2-transport:8892
+      - AXL_LOCAL_A3_URL=http://axl-a3-transport:8893
+      - AXL_LOCAL_A4_URL=http://axl-a4-transport:8894
+    networks: [agents]
+
+  axl-a2-transport:
+    build: ./Gensyn/Plugin-Gensyn-AXL-Transport
+    container_name: counteragent-axl-a2-transport
+    restart: unless-stopped
+    environment:
+      - PORT=8892
+      - CORS_ORIGIN=https://counteragent.netlify.app,https://counteragent.perkos.xyz,https://decision.counteragent.perkos.xyz
+      - AXL_AGENT_ID=A2-Decision
+      - AXL_AGENT_ROLE=A2
+      - AXL_MODE=${AXL_MODE:-local}
+      - AXL_NODE_URL=${AXL_A2_NODE_URL:-}
+      - AXL_REQUIRE_REAL_NODE=${AXL_REQUIRE_REAL_NODE:-false}
+      - AXL_PEER_A0=${AXL_PEER_A0:-counteragent-a0}
+      - AXL_PEER_A1=${AXL_PEER_A1:-counteragent-a1}
+      - AXL_PEER_A2=${AXL_PEER_A2:-counteragent-a2}
+      - AXL_PEER_A3=${AXL_PEER_A3:-counteragent-a3}
+      - AXL_PEER_A4=${AXL_PEER_A4:-counteragent-a4}
+      - AXL_LOCAL_A0_URL=http://axl-a0-transport:8890
+      - AXL_LOCAL_A1_URL=http://axl-a1-transport:8891
+      - AXL_LOCAL_A2_URL=http://axl-a2-transport:8892
+      - AXL_LOCAL_A3_URL=http://axl-a3-transport:8893
+      - AXL_LOCAL_A4_URL=http://axl-a4-transport:8894
+      - AXL_SERVICE_A2_URL=http://decision-scoring-plugin:8790/mcp
+    networks: [agents]
+
+  axl-a3-transport:
+    build: ./Gensyn/Plugin-Gensyn-AXL-Transport
+    container_name: counteragent-axl-a3-transport
+    restart: unless-stopped
+    environment:
+      - PORT=8893
+      - CORS_ORIGIN=https://counteragent.netlify.app,https://counteragent.perkos.xyz,https://execution.counteragent.perkos.xyz
+      - AXL_AGENT_ID=A3-Uniswap-SwapExecution
+      - AXL_AGENT_ROLE=A3
+      - AXL_MODE=${AXL_MODE:-local}
+      - AXL_NODE_URL=${AXL_A3_NODE_URL:-}
+      - AXL_REQUIRE_REAL_NODE=${AXL_REQUIRE_REAL_NODE:-false}
+      - AXL_PEER_A0=${AXL_PEER_A0:-counteragent-a0}
+      - AXL_PEER_A1=${AXL_PEER_A1:-counteragent-a1}
+      - AXL_PEER_A2=${AXL_PEER_A2:-counteragent-a2}
+      - AXL_PEER_A3=${AXL_PEER_A3:-counteragent-a3}
+      - AXL_PEER_A4=${AXL_PEER_A4:-counteragent-a4}
+      - AXL_LOCAL_A0_URL=http://axl-a0-transport:8890
+      - AXL_LOCAL_A1_URL=http://axl-a1-transport:8891
+      - AXL_LOCAL_A2_URL=http://axl-a2-transport:8892
+      - AXL_LOCAL_A3_URL=http://axl-a3-transport:8893
+      - AXL_LOCAL_A4_URL=http://axl-a4-transport:8894
+      - AXL_SERVICE_A3_URL=http://uniswap-swap-plugin:8791/mcp
+    networks: [agents]
+
+  axl-a4-transport:
+    build: ./Gensyn/Plugin-Gensyn-AXL-Transport
+    container_name: counteragent-axl-a4-transport
+    restart: unless-stopped
+    environment:
+      - PORT=8894
+      - CORS_ORIGIN=https://counteragent.netlify.app,https://counteragent.perkos.xyz,https://reporting.counteragent.perkos.xyz
+      - AXL_AGENT_ID=A4-Reporting
+      - AXL_AGENT_ROLE=A4
+      - AXL_MODE=${AXL_MODE:-local}
+      - AXL_NODE_URL=${AXL_A4_NODE_URL:-}
+      - AXL_REQUIRE_REAL_NODE=${AXL_REQUIRE_REAL_NODE:-false}
+      - AXL_PEER_A0=${AXL_PEER_A0:-counteragent-a0}
+      - AXL_PEER_A1=${AXL_PEER_A1:-counteragent-a1}
+      - AXL_PEER_A2=${AXL_PEER_A2:-counteragent-a2}
+      - AXL_PEER_A3=${AXL_PEER_A3:-counteragent-a3}
+      - AXL_PEER_A4=${AXL_PEER_A4:-counteragent-a4}
+      - AXL_LOCAL_A0_URL=http://axl-a0-transport:8890
+      - AXL_LOCAL_A1_URL=http://axl-a1-transport:8891
+      - AXL_LOCAL_A2_URL=http://axl-a2-transport:8892
+      - AXL_LOCAL_A3_URL=http://axl-a3-transport:8893
+      - AXL_LOCAL_A4_URL=http://axl-a4-transport:8894
+      - AXL_SERVICE_A4_URL=http://reporting-plugin:8789/mcp
+    networks: [agents]
+
   ipfs-pinata-plugin:
     build: ./agents/openclaw/plugins/Plugin-IPFS-Pinata
     container_name: counteragent-ipfs-pinata-plugin
@@ -151,6 +277,11 @@ services:
       - a0-orchestrator
       - decision-scoring-plugin
       - gensyn-axl-messaging-plugin
+      - axl-a0-transport
+      - axl-a1-transport
+      - axl-a2-transport
+      - axl-a3-transport
+      - axl-a4-transport
       - uniswap-swap-plugin
     ports:
       - "80:80"

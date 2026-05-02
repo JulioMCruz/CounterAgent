@@ -24,6 +24,13 @@ cp "$TEMPLATE_DIR/.env.example" "$INSTALL_DIR/.env.example"
 cp "$TEMPLATE_DIR/scripts/start-a0.sh" "$INSTALL_DIR/start-a0.sh"
 chmod +x "$INSTALL_DIR/start-a0.sh"
 
+REPO_ROOT="$(cd "$TEMPLATE_DIR/../.." && pwd)"
+if [[ -d "$REPO_ROOT/Gensyn/Plugin-Gensyn-AXL-Transport" ]]; then
+  mkdir -p "$INSTALL_DIR/Gensyn"
+  rm -rf "$INSTALL_DIR/Gensyn/Plugin-Gensyn-AXL-Transport"
+  cp -R "$REPO_ROOT/Gensyn/Plugin-Gensyn-AXL-Transport" "$INSTALL_DIR/Gensyn/Plugin-Gensyn-AXL-Transport"
+fi
+
 for agent in a0-orchestrator a1-monitor a2-decision a3-execution a4-reporting; do
   mkdir -p "$INSTALL_DIR/agents/$agent/workspace/memory"
   cat > "$INSTALL_DIR/agents/$agent/openclaw.json" <<JSON

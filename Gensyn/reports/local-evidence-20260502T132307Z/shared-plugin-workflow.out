@@ -1,0 +1,20 @@
+starting a2-agent
+starting a3-agent
+starting a0-transport
+starting a2-transport
+starting a3-transport
+starting a0-agent
+A2-agent ready
+A3-agent ready
+A0-transport ready
+A2-transport ready
+A3-transport ready
+A0-agent ready
+running CounterAgent workflow through shared Gensyn transport plugin
+workflow ok
+checking A0 transport sent messages
+transport sent trace ok
+checking A2/A3 transport inboxes
+A2 transport inbox ok
+A3 transport inbox ok
+shared plugin CounterAgent workflow test passed: shared-plugin-workflow-1777728189
