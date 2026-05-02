@@ -144,8 +144,7 @@ vite.config.ts.timestamp-*
 
 
 # Private local notes that should not be submitted.
-docs/*NOTES.md
-docs/Idea.md
+docs/
 
 # Local Netlify folder
 .netlify
