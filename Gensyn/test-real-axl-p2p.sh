@@ -144,105 +144,124 @@ sys.exit(1)' "$workflow_id" "$expected_type" "$expected_to_agent" "$expected_non
 }
 
 require_var AXL_A0_URL
+require_var AXL_A1_URL
 require_var AXL_A2_URL
 require_var AXL_A3_URL
+require_var AXL_A4_URL
+require_var AXL_PEER_A1
 require_var AXL_PEER_A2
 require_var AXL_PEER_A3
+require_var AXL_PEER_A4
 
 AXL_A0_URL="$(trim_slash "$AXL_A0_URL")"
+AXL_A1_URL="$(trim_slash "$AXL_A1_URL")"
 AXL_A2_URL="$(trim_slash "$AXL_A2_URL")"
 AXL_A3_URL="$(trim_slash "$AXL_A3_URL")"
+AXL_A4_URL="$(trim_slash "$AXL_A4_URL")"
 REQUIRE_HTTPS_AXL="${REQUIRE_HTTPS_AXL:-true}"
 ALLOW_LOCAL_AXL="${ALLOW_LOCAL_AXL:-false}"
 
 if [[ "$REQUIRE_HTTPS_AXL" == "true" ]]; then
   is_https_url "$AXL_A0_URL" || fail "AXL_A0_URL must be HTTPS for real AXL tests"
+  is_https_url "$AXL_A1_URL" || fail "AXL_A1_URL must be HTTPS for real AXL tests"
   is_https_url "$AXL_A2_URL" || fail "AXL_A2_URL must be HTTPS for real AXL tests"
   is_https_url "$AXL_A3_URL" || fail "AXL_A3_URL must be HTTPS for real AXL tests"
+  is_https_url "$AXL_A4_URL" || fail "AXL_A4_URL must be HTTPS for real AXL tests"
 fi
 ALLOW_PRIVATE_AXL="${ALLOW_PRIVATE_AXL:-false}"
 
 if [[ "$ALLOW_LOCAL_AXL" != "true" ]]; then
   is_local_url "$AXL_A0_URL" && fail "AXL_A0_URL is local; set ALLOW_LOCAL_AXL=true only for intentional multi-process local node tests"
+  is_local_url "$AXL_A1_URL" && fail "AXL_A1_URL is local; set ALLOW_LOCAL_AXL=true only for intentional multi-process local node tests"
   is_local_url "$AXL_A2_URL" && fail "AXL_A2_URL is local; set ALLOW_LOCAL_AXL=true only for intentional multi-process local node tests"
   is_local_url "$AXL_A3_URL" && fail "AXL_A3_URL is local; set ALLOW_LOCAL_AXL=true only for intentional multi-process local node tests"
+  is_local_url "$AXL_A4_URL" && fail "AXL_A4_URL is local; set ALLOW_LOCAL_AXL=true only for intentional multi-process local node tests"
 fi
 
 if [[ "$ALLOW_PRIVATE_AXL" != "true" ]]; then
   is_private_url "$AXL_A0_URL" && fail "AXL_A0_URL is private LAN; set ALLOW_PRIVATE_AXL=true only if these are separate real AXL hosts"
+  is_private_url "$AXL_A1_URL" && fail "AXL_A1_URL is private LAN; set ALLOW_PRIVATE_AXL=true only if these are separate real AXL hosts"
   is_private_url "$AXL_A2_URL" && fail "AXL_A2_URL is private LAN; set ALLOW_PRIVATE_AXL=true only if these are separate real AXL hosts"
   is_private_url "$AXL_A3_URL" && fail "AXL_A3_URL is private LAN; set ALLOW_PRIVATE_AXL=true only if these are separate real AXL hosts"
+  is_private_url "$AXL_A4_URL" && fail "AXL_A4_URL is private LAN; set ALLOW_PRIVATE_AXL=true only if these are separate real AXL hosts"
 fi
 
-if [[ "$AXL_A0_URL" == "$AXL_A2_URL" || "$AXL_A0_URL" == "$AXL_A3_URL" || "$AXL_A2_URL" == "$AXL_A3_URL" ]]; then
-  fail "AXL_A0_URL, AXL_A2_URL, and AXL_A3_URL must be separate node APIs"
+if [[ "$AXL_A0_URL" == "$AXL_A1_URL" || "$AXL_A0_URL" == "$AXL_A2_URL" || "$AXL_A0_URL" == "$AXL_A3_URL" || "$AXL_A0_URL" == "$AXL_A4_URL" || "$AXL_A1_URL" == "$AXL_A2_URL" || "$AXL_A1_URL" == "$AXL_A3_URL" || "$AXL_A1_URL" == "$AXL_A4_URL" || "$AXL_A2_URL" == "$AXL_A3_URL" || "$AXL_A2_URL" == "$AXL_A4_URL" || "$AXL_A3_URL" == "$AXL_A4_URL" ]]; then
+  fail "AXL_A0_URL through AXL_A4_URL must be separate node APIs"
 fi
 
 TMP_DIR="${TMPDIR:-/tmp}/counteragent-real-axl"
 mkdir -p "$TMP_DIR"
 
 A0_TOPOLOGY="$TMP_DIR/a0-topology.json"
+A1_TOPOLOGY="$TMP_DIR/a1-topology.json"
 A2_TOPOLOGY="$TMP_DIR/a2-topology.json"
 A3_TOPOLOGY="$TMP_DIR/a3-topology.json"
+A4_TOPOLOGY="$TMP_DIR/a4-topology.json"
 
 echo "checking real topology on all AXL nodes"
 fetch_topology "$AXL_A0_URL" "$A0_TOPOLOGY"
+fetch_topology "$AXL_A1_URL" "$A1_TOPOLOGY"
 fetch_topology "$AXL_A2_URL" "$A2_TOPOLOGY"
 fetch_topology "$AXL_A3_URL" "$A3_TOPOLOGY"
+fetch_topology "$AXL_A4_URL" "$A4_TOPOLOGY"
 
 A0_OWN_PEER="$(assert_real_topology A0 "$A0_TOPOLOGY")"
+A1_OWN_PEER="$(assert_real_topology A1 "$A1_TOPOLOGY" "$AXL_PEER_A1")"
 A2_OWN_PEER="$(assert_real_topology A2 "$A2_TOPOLOGY" "$AXL_PEER_A2")"
 A3_OWN_PEER="$(assert_real_topology A3 "$A3_TOPOLOGY" "$AXL_PEER_A3")"
+A4_OWN_PEER="$(assert_real_topology A4 "$A4_TOPOLOGY" "$AXL_PEER_A4")"
 
-[[ "$A0_OWN_PEER" != "$A2_OWN_PEER" && "$A0_OWN_PEER" != "$A3_OWN_PEER" && "$A2_OWN_PEER" != "$A3_OWN_PEER" ]] || fail "topologies report duplicate own peer IDs; not separate AXL nodes"
+UNIQUE_COUNT="$(printf '%s\n' "$A0_OWN_PEER" "$A1_OWN_PEER" "$A2_OWN_PEER" "$A3_OWN_PEER" "$A4_OWN_PEER" | sort -u | wc -l | tr -d ' ')"
+[[ "$UNIQUE_COUNT" == "5" ]] || fail "topologies report duplicate own peer IDs; not separate AXL nodes"
 
+assert_peer_visible A0 "$A0_TOPOLOGY" "$AXL_PEER_A1"
 assert_peer_visible A0 "$A0_TOPOLOGY" "$AXL_PEER_A2"
 assert_peer_visible A0 "$A0_TOPOLOGY" "$AXL_PEER_A3"
+assert_peer_visible A0 "$A0_TOPOLOGY" "$AXL_PEER_A4"
 
 echo "A0 peer: $A0_OWN_PEER"
+echo "A1 peer: $A1_OWN_PEER"
 echo "A2 peer: $A2_OWN_PEER"
 echo "A3 peer: $A3_OWN_PEER"
+echo "A4 peer: $A4_OWN_PEER"
 
 WORKFLOW_ID="real-axl-p2p-$(date +%s)"
-NONCE_A2="nonce-a2-$RANDOM-$RANDOM"
-NONCE_A3="nonce-a3-$RANDOM-$RANDOM"
+send_and_check() {
+  local role="$1"
+  local peer="$2"
+  local url="$3"
+  local to_agent="$4"
+  local sequence="$5"
+  local lower
+  lower="$(echo "$role" | tr '[:upper:]' '[:lower:]')"
+  local nonce="nonce-$lower-$RANDOM-$RANDOM"
+  local message_type="real-p2p-$lower-ping"
+  local body="$TMP_DIR/a0-to-$lower.json"
 
-cat > "$TMP_DIR/a0-to-a2.json" <<JSON
+  cat > "$body" <<JSON
 {
   "workflowId": "$WORKFLOW_ID",
-  "messageId": "$WORKFLOW_ID-a2",
-  "sequence": 1,
+  "messageId": "$WORKFLOW_ID-$lower",
+  "sequence": $sequence,
   "fromAgent": "A0-Orchestrator",
-  "toAgent": "A2-Decision",
-  "messageType": "real-p2p-a2-ping",
+  "toAgent": "$to_agent",
+  "messageType": "$message_type",
   "createdAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "payload": { "test": "real-axl-p2p", "target": "A2", "nonce": "$NONCE_A2", "fromPeer": "$A0_OWN_PEER", "toPeer": "$AXL_PEER_A2" }
+  "payload": { "test": "real-axl-p2p", "target": "$role", "nonce": "$nonce", "fromPeer": "$A0_OWN_PEER", "toPeer": "$peer" }
 }
 JSON
 
-cat > "$TMP_DIR/a0-to-a3.json" <<JSON
-{
-  "workflowId": "$WORKFLOW_ID",
-  "messageId": "$WORKFLOW_ID-a3",
-  "sequence": 2,
-  "fromAgent": "A0-Orchestrator",
-  "toAgent": "A3-Uniswap-SwapExecution",
-  "messageType": "real-p2p-a3-ping",
-  "createdAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "payload": { "test": "real-axl-p2p", "target": "A3", "nonce": "$NONCE_A3", "fromPeer": "$A0_OWN_PEER", "toPeer": "$AXL_PEER_A3" }
+  echo "sending A0 -> $role through AXL peer $peer"
+  post_json "$AXL_A0_URL" "$peer" "$body" >/dev/null
+
+  echo "waiting for $role recv with nonce $nonce"
+  poll_recv "$url" "$WORKFLOW_ID" "$message_type" "$to_agent" "$nonce" >/dev/null || fail "$role did not receive P2P AXL message with expected nonce"
 }
-JSON
 
-echo "sending A0 -> A2 through AXL peer $AXL_PEER_A2"
-post_json "$AXL_A0_URL" "$AXL_PEER_A2" "$TMP_DIR/a0-to-a2.json" >/dev/null
-
-echo "waiting for A2 recv with nonce $NONCE_A2"
-poll_recv "$AXL_A2_URL" "$WORKFLOW_ID" "real-p2p-a2-ping" "A2-Decision" "$NONCE_A2" >/dev/null || fail "A2 did not receive P2P AXL message with expected nonce"
-
-echo "sending A0 -> A3 through AXL peer $AXL_PEER_A3"
-post_json "$AXL_A0_URL" "$AXL_PEER_A3" "$TMP_DIR/a0-to-a3.json" >/dev/null
-
-echo "waiting for A3 recv with nonce $NONCE_A3"
-poll_recv "$AXL_A3_URL" "$WORKFLOW_ID" "real-p2p-a3-ping" "A3-Uniswap-SwapExecution" "$NONCE_A3" >/dev/null || fail "A3 did not receive P2P AXL message with expected nonce"
+send_and_check A1 "$AXL_PEER_A1" "$AXL_A1_URL" "A1-Monitor" 1
+send_and_check A2 "$AXL_PEER_A2" "$AXL_A2_URL" "A2-Decision" 2
+send_and_check A3 "$AXL_PEER_A3" "$AXL_A3_URL" "A3-Uniswap-SwapExecution" 3
+send_and_check A4 "$AXL_PEER_A4" "$AXL_A4_URL" "A4-Reporting" 4
 
 echo "real AXL P2P send/recv passed: $WORKFLOW_ID"

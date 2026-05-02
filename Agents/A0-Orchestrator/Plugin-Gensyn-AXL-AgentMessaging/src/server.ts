@@ -33,8 +33,10 @@ const axlMode = process.env.GENSYN_AXL_MODE ?? 'adapter';
 const axlNodeUrl = process.env.GENSYN_AXL_NODE_URL;
 const axlAgentId = process.env.GENSYN_AXL_AGENT_ID ?? 'counteragent-a0';
 const mcpServiceUrls: Record<string, string | undefined> = {
+  'counteragent-monitor': process.env.GENSYN_AXL_SERVICE_A1_URL ?? 'http://127.0.0.1:8788/mcp',
   'counteragent-decision': process.env.GENSYN_AXL_SERVICE_A2_URL ?? 'http://127.0.0.1:8790/mcp',
-  'counteragent-execution': process.env.GENSYN_AXL_SERVICE_A3_URL ?? 'http://127.0.0.1:8791/mcp'
+  'counteragent-execution': process.env.GENSYN_AXL_SERVICE_A3_URL ?? 'http://127.0.0.1:8791/mcp',
+  'counteragent-reporting': process.env.GENSYN_AXL_SERVICE_A4_URL ?? 'http://127.0.0.1:8789/mcp'
 };
 
 const app = Fastify({ logger: true });

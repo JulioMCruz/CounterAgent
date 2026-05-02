@@ -43,10 +43,14 @@ export function AxlTransportStatus() {
           </div>
         )}
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
           <div className="rounded-xl bg-background/80 p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Node</p>
             <p className="mt-1 text-sm font-semibold">{label(status?.nodeConfigured)}</p>
+          </div>
+          <div className="rounded-xl bg-background/80 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">A1 peer</p>
+            <p className="mt-1 text-sm font-semibold">{label(status?.peers?.A1)}</p>
           </div>
           <div className="rounded-xl bg-background/80 p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">A2 peer</p>
@@ -55,6 +59,10 @@ export function AxlTransportStatus() {
           <div className="rounded-xl bg-background/80 p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">A3 peer</p>
             <p className="mt-1 text-sm font-semibold">{label(status?.peers?.A3)}</p>
+          </div>
+          <div className="rounded-xl bg-background/80 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">A4 peer</p>
+            <p className="mt-1 text-sm font-semibold">{label(status?.peers?.A4)}</p>
           </div>
           <div className="rounded-xl bg-background/80 p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">HTTP fallback</p>

@@ -23,6 +23,13 @@ const reportSchema = z.object({
   metadata: z.record(z.unknown()).optional()
 });
 
+const jsonRpcSchema = z.object({
+  jsonrpc: z.string().optional(),
+  id: z.unknown().optional(),
+  method: z.string().min(1),
+  params: z.record(z.unknown()).optional().default({})
+});
+
 const port = Number(process.env.PORT ?? 8789);
 const corsOrigins = (process.env.CORS_ORIGIN ?? 'https://counteragent.netlify.app')
   .split(',')
@@ -157,6 +164,10 @@ app.get('/healthz', async () => ({
   ok: true,
   status: 'live',
   role: 'reporting',
+  mcp: {
+    service: 'counteragent-reporting',
+    tools: ['publish_report']
+  },
   storageMode,
   zeroG: {
     chainId: zeroGChainId,
@@ -166,6 +177,36 @@ app.get('/healthz', async () => ({
     signerConfigured: a4PrivateKeyConfigured
   }
 }));
+
+async function buildAndPublishReport(data: z.infer<typeof reportSchema>) {
+  const report: CanonicalReport = {
+    ...data,
+    reportId: data.reportId ?? randomUUID(),
+    schemaVersion: 1,
+    createdAt: new Date().toISOString()
+  };
+
+  const published = await publishReport(report);
+  pushRecentReport({
+    agent: 'A4',
+    reportId: report.reportId,
+    merchant: report.merchantWallet,
+    merchantEns: report.merchantEns,
+    decision: report.decision,
+    summary: report.summary,
+    storageUri: published.storageUri,
+    contentHash: published.contentHash,
+    txHash: 'transactionHash' in published && typeof published.transactionHash === 'string' ? published.transactionHash : report.transactionHash,
+    savingsEstimateUsd: report.savingsEstimateUsd,
+    timestamp: report.createdAt
+  });
+
+  return {
+    ok: true,
+    reportId: report.reportId,
+    ...published
+  };
+}
 
 app.post('/reports/publish', async (request, reply) => {
   const parsed = reportSchema.safeParse(request.body);
@@ -178,36 +219,54 @@ app.post('/reports/publish', async (request, reply) => {
     });
   }
 
-  const report: CanonicalReport = {
-    ...parsed.data,
-    reportId: parsed.data.reportId ?? randomUUID(),
-    schemaVersion: 1,
-    createdAt: new Date().toISOString()
-  };
-
   try {
-    const published = await publishReport(report);
-    pushRecentReport({
-      agent: 'A4',
-      reportId: report.reportId,
-      merchant: report.merchantWallet,
-      merchantEns: report.merchantEns,
-      decision: report.decision,
-      summary: report.summary,
-      storageUri: published.storageUri,
-      contentHash: published.contentHash,
-      txHash: 'transactionHash' in published && typeof published.transactionHash === 'string' ? published.transactionHash : report.transactionHash,
-      savingsEstimateUsd: report.savingsEstimateUsd,
-      timestamp: report.createdAt
-    });
-    return reply.send({
-      ok: true,
-      reportId: report.reportId,
-      ...published
-    });
+    return reply.send(await buildAndPublishReport(parsed.data));
   } catch (error) {
     request.log.error({ error }, 'report publish failed');
     return reply.code(502).send({ ok: false, error: 'report_publish_failed' });
+  }
+});
+
+app.post('/mcp', async (request, reply) => {
+  const parsed = jsonRpcSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.code(400).send({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'invalid_request' } });
+  }
+
+  if (parsed.data.method === 'tools/list') {
+    return reply.send({
+      jsonrpc: '2.0',
+      id: parsed.data.id,
+      result: {
+        tools: [{ name: 'publish_report', description: 'Publish a CounterAgent workflow report and audit trail.' }]
+      }
+    });
+  }
+
+  if (parsed.data.method !== 'tools/call') {
+    return reply.send({ jsonrpc: '2.0', id: parsed.data.id, error: { code: -32601, message: 'method_not_found' } });
+  }
+
+  const name = typeof parsed.data.params.name === 'string' ? parsed.data.params.name : '';
+  if (name !== 'publish_report') {
+    return reply.send({ jsonrpc: '2.0', id: parsed.data.id, error: { code: -32601, message: 'tool_not_found' } });
+  }
+
+  const args = reportSchema.safeParse(parsed.data.params.arguments ?? {});
+  if (!args.success) {
+    return reply.send({ jsonrpc: '2.0', id: parsed.data.id, error: { code: -32602, message: 'invalid_tool_arguments' } });
+  }
+
+  try {
+    const result = await buildAndPublishReport(args.data);
+    return reply.send({
+      jsonrpc: '2.0',
+      id: parsed.data.id,
+      result: { content: [{ type: 'text', text: JSON.stringify(result) }] }
+    });
+  } catch (error) {
+    request.log.error({ error }, 'A4 MCP report publish failed');
+    return reply.send({ jsonrpc: '2.0', id: parsed.data.id, error: { code: -32001, message: 'report_publish_failed' } });
   }
 });
 

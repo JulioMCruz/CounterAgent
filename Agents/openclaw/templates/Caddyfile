@@ -8,7 +8,9 @@
   }
 }
 
-counteragent.perkos.xyz {
+# counteragents.cc is served by the Netlify app. Agent subdomains terminate HTTPS here.
+
+orchestrator.counteragents.cc {
   import counteragent_headers
   @axl_status path /axl/status
   handle @axl_status {
@@ -21,40 +23,17 @@ counteragent.perkos.xyz {
     reverse_proxy axl-a0-transport:8890
   }
 
-  @orchestrator_api path /session/* /onboarding/* /workflow/* /vault/* /ens/* /dashboard/*
+  @orchestrator_api path /session/* /onboarding/* /workflow/* /vault/* /ens/* /dashboard/* /healthz
   handle @orchestrator_api {
     reverse_proxy orchestrator-plugin:8787
   }
 
   handle {
-    reverse_proxy a0-orchestrator:18789
+    reverse_proxy a0-orchestrator:3000
   }
 }
 
-orchestrator.counteragent.perkos.xyz {
-  import counteragent_headers
-  @axl_status path /axl/status
-  handle @axl_status {
-    reverse_proxy orchestrator-plugin:8787
-  }
-
-  @axl path /axl/*
-  handle @axl {
-    uri strip_prefix /axl
-    reverse_proxy axl-a0-transport:8890
-  }
-
-  @orchestrator_api path /session/* /onboarding/* /workflow/* /vault/* /ens/* /dashboard/*
-  handle @orchestrator_api {
-    reverse_proxy orchestrator-plugin:8787
-  }
-
-  handle {
-    reverse_proxy a0-orchestrator:18789
-  }
-}
-
-monitor.counteragent.perkos.xyz {
+monitor.counteragents.cc {
   import counteragent_headers
   @axl path /axl/*
   handle @axl {
@@ -62,10 +41,10 @@ monitor.counteragent.perkos.xyz {
     reverse_proxy axl-a1-transport:8891
   }
 
-  reverse_proxy ens-merchant-config-plugin:8788
+  reverse_proxy monitor-plugin:8788
 }
 
-decision.counteragent.perkos.xyz {
+decision.counteragents.cc {
   import counteragent_headers
   @axl path /axl/*
   handle @axl {
@@ -76,7 +55,7 @@ decision.counteragent.perkos.xyz {
   reverse_proxy decision-scoring-plugin:8790
 }
 
-execution.counteragent.perkos.xyz {
+execution.counteragents.cc {
   import counteragent_headers
   @axl path /axl/*
   handle @axl {
@@ -87,7 +66,7 @@ execution.counteragent.perkos.xyz {
   reverse_proxy uniswap-swap-plugin:8791
 }
 
-reporting.counteragent.perkos.xyz {
+reporting.counteragents.cc {
   import counteragent_headers
   @axl path /axl/*
   handle @axl {

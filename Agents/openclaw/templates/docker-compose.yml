@@ -17,6 +17,37 @@ services:
       - OPENCLAW_TOKEN=${OPENCLAW_TOKEN_A0}
     networks: [agents]
 
+  orchestrator-plugin:
+    build: ./agents/a0-orchestrator/Plugin-CounterAgent
+    container_name: counteragent-orchestrator-plugin
+    restart: unless-stopped
+    environment:
+      - PORT=8787
+      - CORS_ORIGIN=https://counteragents.cc,https://orchestrator.counteragents.cc
+      - DEFAULT_CHAIN_ID=${DEFAULT_CHAIN_ID:-84532}
+      - BASE_RPC_URL=${BASE_RPC_URL:-https://sepolia.base.org}
+      - BASE_SEPOLIA_RPC_URL=${BASE_SEPOLIA_RPC_URL:-https://sepolia.base.org}
+      - MERCHANT_REGISTRY_ADDRESS=${MERCHANT_REGISTRY_ADDRESS:-}
+      - REGISTRY_RELAYER_PRIVATE_KEY=${REGISTRY_RELAYER_PRIVATE_KEY:-}
+      - MONITOR_AGENT_URL=http://monitor-plugin:8788
+      - REPORTING_AGENT_URL=http://reporting-plugin:8789
+      - DECISION_AGENT_URL=http://decision-scoring-plugin:8790
+      - EXECUTION_AGENT_URL=http://uniswap-swap-plugin:8791
+      - GENSYN_AXL_MODE=${GENSYN_AXL_MODE:-transport}
+      - GENSYN_AXL_NODE_URL=http://axl-a0-transport:8890
+      - GENSYN_AXL_PEER_A1=${AXL_PEER_A1:-}
+      - GENSYN_AXL_PEER_A2=${AXL_PEER_A2:-}
+      - GENSYN_AXL_PEER_A3=${AXL_PEER_A3:-}
+      - GENSYN_AXL_PEER_A4=${AXL_PEER_A4:-}
+      - GENSYN_AXL_SERVICE_A1=${GENSYN_AXL_SERVICE_A1:-counteragent-monitor}
+      - GENSYN_AXL_SERVICE_A2=${GENSYN_AXL_SERVICE_A2:-counteragent-decision}
+      - GENSYN_AXL_SERVICE_A3=${GENSYN_AXL_SERVICE_A3:-counteragent-execution}
+      - GENSYN_AXL_SERVICE_A4=${GENSYN_AXL_SERVICE_A4:-counteragent-reporting}
+      - GENSYN_AXL_FALLBACK_HTTP=${GENSYN_AXL_FALLBACK_HTTP:-false}
+      - ENS_PARENT_NAME=${ENS_PARENT_NAME:-counteragents.eth}
+      - ORCHESTRATOR_INTERNAL_TOKEN=${ORCHESTRATOR_INTERNAL_TOKEN:-}
+    networks: [agents]
+
   a1-monitor:
     build: .
     container_name: counteragent-a1-monitor
@@ -32,6 +63,23 @@ services:
       - A2A_PORT=5000
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENCLAW_TOKEN=${OPENCLAW_TOKEN_A1}
+    networks: [agents]
+
+  monitor-plugin:
+    build: ./agents/a1-monitor/Plugin-ENS-MerchantConfig
+    container_name: counteragent-monitor-plugin
+    restart: unless-stopped
+    environment:
+      - PORT=8788
+      - CORS_ORIGIN=https://counteragents.cc,https://orchestrator.counteragents.cc,https://monitor.counteragents.cc
+      - ENS_RPC_URL=${ENS_RPC_URL:-https://ethereum-sepolia-rpc.publicnode.com}
+      - ENS_REGISTRY_ADDRESS=${ENS_REGISTRY_ADDRESS:-0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e}
+      - ENS_REGISTRAR_ADDRESS=${ENS_REGISTRAR_ADDRESS:-}
+      - MERCHANT_REGISTRY_ADDRESS=${MERCHANT_REGISTRY_ADDRESS:-}
+      - ENS_PARENT_NAME=${ENS_PARENT_NAME:-counteragents.eth}
+      - PINATA_JWT=${PINATA_JWT:-}
+      - PINATA_GATEWAY_URL=${PINATA_GATEWAY_URL:-https://gateway.pinata.cloud/ipfs}
+      - IPFS_PLUGIN_URL=http://ipfs-pinata-plugin:8793
     networks: [agents]
 
   a2-decision:
@@ -113,6 +161,7 @@ services:
       - AXL_LOCAL_A2_URL=http://axl-a2-transport:8892
       - AXL_LOCAL_A3_URL=http://axl-a3-transport:8893
       - AXL_LOCAL_A4_URL=http://axl-a4-transport:8894
+      - AXL_SERVICE_A1_URL=http://monitor-plugin:8788/mcp
       - AXL_SERVICE_A2_URL=http://decision-scoring-plugin:8790/mcp
       - AXL_SERVICE_A3_URL=http://uniswap-swap-plugin:8791/mcp
       - AXL_SERVICE_A4_URL=http://reporting-plugin:8789/mcp
@@ -140,6 +189,7 @@ services:
       - AXL_LOCAL_A2_URL=http://axl-a2-transport:8892
       - AXL_LOCAL_A3_URL=http://axl-a3-transport:8893
       - AXL_LOCAL_A4_URL=http://axl-a4-transport:8894
+      - AXL_SERVICE_A1_URL=http://monitor-plugin:8788/mcp
     networks: [agents]
 
   axl-a2-transport:
@@ -229,6 +279,23 @@ services:
       - IPFS_UPLOAD_MAX_BYTES=${IPFS_UPLOAD_MAX_BYTES:-10000000}
     networks: [agents]
 
+  reporting-plugin:
+    build: ./agents/a4-reporting/Plugin-CounterAgent
+    container_name: counteragent-reporting-plugin
+    restart: unless-stopped
+    environment:
+      - PORT=8789
+      - CORS_ORIGIN=https://counteragents.cc,https://orchestrator.counteragents.cc,https://reporting.counteragents.cc
+      - REPORT_STORAGE_MODE=${REPORT_STORAGE_MODE:-local}
+      - REPORT_STORAGE_DIR=${REPORT_STORAGE_DIR:-./data/reports}
+      - ZERO_G_CHAIN_ID=${ZERO_G_CHAIN_ID:-16602}
+      - ZERO_G_RPC_URL=${ZERO_G_RPC_URL:-https://evmrpc-testnet.0g.ai}
+      - ZERO_G_INDEXER_RPC_URL=${ZERO_G_INDEXER_RPC_URL:-https://indexer-storage-testnet-turbo.0g.ai}
+      - A4_REPORTING_PRIVATE_KEY=${A4_REPORTING_PRIVATE_KEY:-}
+    volumes:
+      - reporting_data:/app/data
+    networks: [agents]
+
   uniswap-swap-plugin:
     build: ./agents/a3-execution/Plugin-Uniswap-SwapExecution
     container_name: counteragent-uniswap-swap-plugin
@@ -277,8 +344,11 @@ services:
     restart: unless-stopped
     depends_on:
       - a0-orchestrator
+      - orchestrator-plugin
       - decision-scoring-plugin
       - gensyn-axl-messaging-plugin
+      - monitor-plugin
+      - reporting-plugin
       - axl-a0-transport
       - axl-a1-transport
       - axl-a2-transport
@@ -301,3 +371,4 @@ networks:
 volumes:
   caddy_data:
   caddy_config:
+  reporting_data:
