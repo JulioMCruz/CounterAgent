@@ -5,6 +5,9 @@ const tokenMeta: Record<string, { name: string; color: string }> = {
   USDC: { name: "USD Coin", color: "bg-chart-3" },
   EURC: { name: "Euro Coin", color: "bg-primary" },
   USDT: { name: "Tether", color: "bg-success" },
+  CUSD: { name: "Mento Dollar", color: "bg-chart-2" },
+  CEUR: { name: "Mento Euro", color: "bg-chart-4" },
+  CELO: { name: "Celo", color: "bg-chart-5" },
 }
 
 function formatAmount(value: number, symbol: string) {
@@ -21,11 +24,11 @@ export function Holdings({ dashboard, isLoading }: { dashboard?: DashboardState;
     if (execution.toToken) tokenTotals.set(execution.toToken, tokenTotals.get(execution.toToken) ?? 0)
   }
 
-  const holdings = ["USDC", "EURC", "USDT"].map((symbol) => ({
+  const holdings = ["USDC", "EURC", "USDT", "CUSD", "CEUR", "CELO"].map((symbol) => ({
     symbol,
-    name: tokenMeta[symbol].name,
+    name: tokenMeta[symbol]?.name ?? symbol,
     value: tokenTotals.get(symbol) ?? 0,
-    color: tokenMeta[symbol].color,
+    color: tokenMeta[symbol]?.color ?? "bg-muted-foreground",
   }))
 
   return (

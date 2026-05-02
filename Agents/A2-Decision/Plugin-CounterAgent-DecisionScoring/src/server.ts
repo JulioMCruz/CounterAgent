@@ -3,7 +3,7 @@ import Fastify from 'fastify';
 import { isAddress } from 'viem';
 import { z } from 'zod';
 
-const tokenSchema = z.enum(['USDC', 'EURC', 'USDT']);
+const tokenSchema = z.enum(['USDC', 'EURC', 'USDT', 'CUSD', 'CEUR', 'CELO']);
 const riskSchema = z.enum(['conservative', 'moderate', 'aggressive']).or(
   z.enum(['Conservative', 'Moderate', 'Aggressive']).transform((value) => value.toLowerCase() as 'conservative' | 'moderate' | 'aggressive')
 );
@@ -30,7 +30,18 @@ const decisionSchema = z.object({
     baselineRate: z.number().positive().optional(),
     feeBps: z.number().min(0).max(10_000).default(0),
     priceImpactBps: z.number().min(0).max(10_000).default(0),
-    estimatedGasUsd: z.string().max(80).optional()
+    estimatedGasUsd: z.string().max(80).optional(),
+    routeDiagnostics: z.object({
+      source: z.string().max(80).optional(),
+      routing: z.string().max(80).optional(),
+      priceImpactSource: z.string().max(80).optional(),
+      approval: z.object({
+        required: z.boolean().optional(),
+        calldataReady: z.boolean().optional(),
+        error: z.string().max(300).optional()
+      }).optional(),
+      quoteValidUntil: z.string().max(80).optional()
+    }).optional()
   }),
   metadata: z.record(z.unknown()).optional()
 });
@@ -100,7 +111,10 @@ function evaluateDecision(input: z.infer<typeof decisionSchema>) {
   const baselineRate = input.quote.baselineRate ?? defaultBaselineRate;
   const spreadBps = ((input.quote.rate - baselineRate) / baselineRate) * 10_000;
   const riskBufferBps = riskBuffersBps[input.riskTolerance];
-  const netScoreBps = spreadBps - input.quote.feeBps - input.quote.priceImpactBps - riskBufferBps;
+  const source = input.quote.routeDiagnostics?.source ?? input.quote.provider;
+  const routePenaltyBps = source && ['trading-api', 'v4-direct'].includes(source) ? 0 : 75;
+  const approvalPenaltyBps = input.quote.routeDiagnostics?.approval?.error ? 50 : 0;
+  const netScoreBps = spreadBps - input.quote.feeBps - input.quote.priceImpactBps - riskBufferBps - routePenaltyBps - approvalPenaltyBps;
   const convert = netScoreBps >= input.fxThresholdBps;
   const distanceFromThreshold = Math.abs(netScoreBps - input.fxThresholdBps);
   const confidence = clamp(Math.round(minConfidence + distanceFromThreshold / 4), minConfidence, 99);
@@ -112,9 +126,11 @@ function evaluateDecision(input: z.infer<typeof decisionSchema>) {
     netScoreBps: Math.round(netScoreBps),
     thresholdBps: input.fxThresholdBps,
     riskBufferBps,
+    routePenaltyBps,
+    approvalPenaltyBps,
     reason: convert
-      ? `Net opportunity ${Math.round(netScoreBps)} bps meets threshold ${input.fxThresholdBps} bps.`
-      : `Net opportunity ${Math.round(netScoreBps)} bps is below threshold ${input.fxThresholdBps} bps.`
+      ? `Net opportunity ${Math.round(netScoreBps)} bps meets threshold ${input.fxThresholdBps} bps with ${source ?? 'unknown'} route intelligence.`
+      : `Net opportunity ${Math.round(netScoreBps)} bps is below threshold ${input.fxThresholdBps} bps after route, impact, gas, and approval checks.`
   };
 }
 

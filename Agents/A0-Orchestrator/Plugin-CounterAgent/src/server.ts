@@ -94,7 +94,7 @@ const onboardingPrepareSchema = z.object({
   telegramChat: z.string().max(120).optional()
 });
 
-const baseStablecoinSchema = z.enum(['USDC', 'EURC', 'USDT']);
+const baseStablecoinSchema = z.enum(['USDC', 'EURC', 'USDT', 'CUSD', 'CEUR', 'CELO', 'cUSD', 'cEUR']);
 const celoStablecoinSchema = z.enum(['cUSD', 'cEUR', 'cREAL', 'cKES', 'cCOP', 'cGHS']);
 const stablecoinSchema = z.union([baseStablecoinSchema, celoStablecoinSchema]);
 const tokenSchema = baseStablecoinSchema;
@@ -192,6 +192,11 @@ const stablecoinAddressesByChain: Record<number, Record<string, Address>> = {
     USDT: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2'
   },
   [celo.id]: {
+    CELO: '0x471EcE3750Da237f93B8E339c536989b8978a438',
+    USDC: '0xcebA9300f2b948710d2653dD7B07f33A8B32118C',
+    USDT: '0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e',
+    CUSD: '0x765DE816845861e75A25fCA122bb6898B8B1282a',
+    CEUR: '0xD8763CBa276a3738E6DE85b4b3bF5FDed6D6cA73',
     cUSD: '0x765DE816845861e75A25fCA122bb6898B8B1282a',
     cEUR: '0xD8763CBa276a3738E6DE85b4b3bF5FDed6D6cA73',
     cREAL: '0xe8537a3d056DA446677B9E9d6c5dB704EaAb4787',
@@ -200,6 +205,10 @@ const stablecoinAddressesByChain: Record<number, Record<string, Address>> = {
     cGHS: '0xfAeA5F3404bbA20D3cc2f8C4B0A888F55a3c7313'
   },
   [celoSepolia.id]: {
+    USDC: '0x01C5C0122039549AD1493B8220cABEdD739BC44E',
+    USDT: '0xd077A400968890Eacc75cdc901F0356c943e4fDb',
+    CUSD: '0xdE9e4C3ce781b4bA68120d6261cbad65ce0aB00b',
+    CEUR: '0xA99dC247d6b7B2E3ab48a1fEE101b83cD6aCd82a',
     cUSD: '0xdE9e4C3ce781b4bA68120d6261cbad65ce0aB00b',
     cEUR: '0xA99dC247d6b7B2E3ab48a1fEE101b83cD6aCd82a',
     cREAL: '0x2294298942fdc79417DE9E0D740A4957E0e7783a',
@@ -212,7 +221,7 @@ const stablecoinAddressesByChain: Record<number, Record<string, Address>> = {
 const stablecoinAddresses = stablecoinAddressesByChain[base.id];
 
 function defaultStablecoinForChain(chainId: number) {
-  return chainId === celo.id || chainId === celoSepolia.id ? 'cUSD' : 'USDC';
+  return chainId === celo.id || chainId === celoSepolia.id ? 'CUSD' : 'USDC';
 }
 
 function stablecoinsForChain(chainId: number) {
@@ -1395,7 +1404,8 @@ app.post('/workflow/evaluate', async (request, reply) => {
           rate: quote.quote.rate,
           baselineRate: quote.quote.baselineRate ?? workflow.baselineRate,
           feeBps: quote.quote.feeBps ?? 0,
-          priceImpactBps: quote.quote.priceImpactBps ?? 0
+          priceImpactBps: quote.quote.priceImpactBps ?? 0,
+          routeDiagnostics: quote.quote.routeDiagnostics
         },
         metadata: workflow.metadata
       }

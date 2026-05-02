@@ -26,7 +26,7 @@ else
   exit 127
 fi
 
-run bash tests/test-counteragent-services-local.sh
+run bash Tests/test-counteragent-services-local.sh
 
 echo
 echo "CounterAgent all local gates passed"

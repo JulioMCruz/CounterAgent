@@ -4,15 +4,46 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createPublicClient, createWalletClient, formatUnits, http, isAddress, parseAbi, parseUnits, type Address, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { z } from 'zod';
-import { UniswapApiError, UniswapTradingApiClient, type StablecoinSymbol, type TokenConfig } from './uniswap.js';
+import { UniswapApiError, UniswapTradingApiClient, type RouteDiagnostics, type StablecoinSymbol, type TokenConfig } from './uniswap.js';
 
-const tokenSchema = z.enum(['USDC', 'EURC', 'USDT']);
+const tokenSchema = z.enum(['USDC', 'EURC', 'USDT', 'CUSD', 'CEUR', 'CELO']);
 const txHashPattern = /^0x[a-fA-F0-9]{64}$/;
 
-const baseMainnetTokens: Record<StablecoinSymbol, TokenConfig> = {
-  USDC: { symbol: 'USDC', address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', decimals: 6 },
-  EURC: { symbol: 'EURC', address: '0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42', decimals: 6 },
-  USDT: { symbol: 'USDT', address: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2', decimals: 6 }
+const defaultTokenAddress = '0x0000000000000000000000000000000000000000' as Address;
+
+const chainTokens: Record<number, Partial<Record<StablecoinSymbol, TokenConfig>>> = {
+  1: {
+    USDC: { symbol: 'USDC', address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', decimals: 6 },
+    EURC: { symbol: 'EURC', address: '0x1aBaEA1f7C830bD89Acc67eC4af516284b1bC33c', decimals: 6 },
+    USDT: { symbol: 'USDT', address: '0xdAC17F958D2ee523a2206206994597C13D831ec7', decimals: 6 }
+  },
+  8453: {
+    USDC: { symbol: 'USDC', address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', decimals: 6 },
+    EURC: { symbol: 'EURC', address: '0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42', decimals: 6 },
+    USDT: { symbol: 'USDT', address: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2', decimals: 6 }
+  },
+  84532: {
+    USDC: { symbol: 'USDC', address: '0x036CbD53842c5426634e7929541eC2318f3dCF7e', decimals: 6 },
+    EURC: { symbol: 'EURC', address: '0x808456652fdb597867f38412077A9182bf77359F', decimals: 6 }
+  },
+  42220: {
+    CELO: { symbol: 'CELO', address: '0x471EcE3750Da237f93B8E339c536989b8978a438', decimals: 18 },
+    USDC: { symbol: 'USDC', address: '0xcebA9300f2b948710d2653dD7B07f33A8B32118C', decimals: 6 },
+    USDT: { symbol: 'USDT', address: '0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e', decimals: 6 },
+    CUSD: { symbol: 'CUSD', address: '0x765DE816845861e75A25fCA122bb6898B8B1282a', decimals: 18 },
+    CEUR: { symbol: 'CEUR', address: '0xD8763CBa276a3738E6DE85b4b3bF5FDed6D6cA73', decimals: 18 }
+  },
+  44787: {
+    CELO: { symbol: 'CELO', address: '0x874069Fa1Eb16D44d622F2e0Ca25eeA172369bC1', decimals: 18 },
+    CUSD: { symbol: 'CUSD', address: '0x62492A644A588FD904270BeD06ad52B9abfEA1aE', decimals: 18 },
+    CEUR: { symbol: 'CEUR', address: '0xf9ecE301247aD2CE21894941830A2470f4E774ca', decimals: 18 }
+  },
+  11142220: {
+    USDC: { symbol: 'USDC', address: '0x01C5C0122039549AD1493B8220cABEdD739BC44E', decimals: 6 },
+    USDT: { symbol: 'USDT', address: '0xd077A400968890Eacc75cdc901F0356c943e4fDb', decimals: 6 },
+    CUSD: { symbol: 'CUSD', address: '0xEF4d55D6dE8e8d73232827Cd1e9b2F2dBb45bC80', decimals: 18 },
+    CEUR: { symbol: 'CEUR', address: '0x6B172e333e2978484261D7eCC3DE491E79764BbC', decimals: 18 }
+  }
 };
 
 const jsonRpcSchema = z.object({
@@ -66,7 +97,15 @@ const uniswapApiUrl = process.env.UNISWAP_API_URL ?? 'https://trade-api.gateway.
 const uniswapApiKey = process.env.UNISWAP_API_KEY;
 const uniswapApiKeyConfigured = Boolean(uniswapApiKey && !uniswapApiKey.includes('<'));
 const chainId = Number(process.env.CHAIN_ID ?? 84532);
-const rpcUrl = process.env.BASE_SEPOLIA_RPC_URL ?? process.env.BASE_RPC_URL ?? 'https://sepolia.base.org';
+function defaultRpcUrl(id: number) {
+  if (id === 1) return process.env.ETHEREUM_RPC_URL ?? 'https://eth.llamarpc.com';
+  if (id === 8453) return process.env.BASE_RPC_URL ?? 'https://mainnet.base.org';
+  if (id === 42220) return process.env.CELO_RPC_URL ?? 'https://forno.celo.org';
+  if (id === 44787) return process.env.CELO_ALFAJORES_RPC_URL ?? 'https://alfajores-forno.celo-testnet.org';
+  if (id === 11142220) return process.env.CELO_SEPOLIA_RPC_URL ?? 'https://forno.celo-sepolia.celo-testnet.org';
+  return process.env.BASE_SEPOLIA_RPC_URL ?? process.env.BASE_RPC_URL ?? 'https://sepolia.base.org';
+}
+const rpcUrl = process.env.RPC_URL ?? defaultRpcUrl(chainId);
 const keeperHubConfigured = Boolean(process.env.KEEPERHUB_API_URL && process.env.KEEPERHUB_API_KEY);
 const executorConfigured = Boolean(process.env.EXECUTOR_PRIVATE_KEY && !process.env.EXECUTOR_PRIVATE_KEY.includes('<'));
 const treasuryVaultFactoryAddress = envAddress('TREASURY_VAULT_FACTORY_ADDRESS');
@@ -127,8 +166,55 @@ type CounterAgentQuote = {
   apiAttempted: boolean;
   apiStatus?: number;
   apiError?: string;
+  routeDiagnostics: RouteDiagnostics;
   rawQuote?: unknown;
 };
+
+const quoteTtlMs = Number(process.env.UNISWAP_QUOTE_TTL_MS ?? 20_000);
+
+function quoteValidUntil() {
+  return new Date(Date.now() + quoteTtlMs).toISOString();
+}
+
+function routeDiagnosticsFor(input: z.infer<typeof quoteSchema>, args: {
+  source: RouteDiagnostics['source'];
+  tokenIn: Address;
+  tokenOut: Address;
+  amountInRaw: string;
+  amountOutRaw?: string;
+  priceImpactBps?: number;
+  priceImpactSource?: RouteDiagnostics['priceImpactSource'];
+  routeText?: string;
+  pools?: RouteDiagnostics['pools'];
+  routing?: string;
+  protocols?: string[];
+  gasEstimate?: string;
+  gasFeeUSD?: string;
+  approval?: RouteDiagnostics['approval'];
+}): RouteDiagnostics {
+  const amountOut = args.amountOutRaw;
+  const amountOutMinimum = amountOut ? ((BigInt(amountOut) * BigInt(10_000 - input.slippageBps)) / 10_000n).toString() : undefined;
+  return {
+    source: args.source,
+    routing: args.routing,
+    protocols: args.protocols ?? [],
+    chainId,
+    tokenIn: args.tokenIn,
+    tokenOut: args.tokenOut,
+    amountIn: args.amountInRaw,
+    amountOut,
+    amountOutMinimum,
+    slippageBps: input.slippageBps,
+    priceImpactBps: args.priceImpactBps,
+    priceImpactSource: args.priceImpactSource ?? 'unavailable',
+    gasEstimate: args.gasEstimate,
+    gasFeeUSD: args.gasFeeUSD,
+    routeText: args.routeText ?? `${input.fromToken} → ${input.toToken}`,
+    pools: args.pools ?? [],
+    approval: args.approval,
+    quoteValidUntil: quoteValidUntil()
+  };
+}
 
 type RecentSwap = {
   agent: 'A3';
@@ -166,7 +252,16 @@ await app.register(cors, {
 
 function tokenConfig(symbol: StablecoinSymbol): TokenConfig {
   const override = envAddress(`${symbol}_TOKEN_ADDRESS`) ?? envAddress(`${symbol}_TOKEN_ADDRESS_${chainId}`);
-  return { ...baseMainnetTokens[symbol], address: override ?? baseMainnetTokens[symbol].address };
+  const chainDefault = chainTokens[chainId]?.[symbol] ?? chainTokens[8453]?.[symbol] ?? {
+    symbol,
+    address: defaultTokenAddress,
+    decimals: symbol === 'CELO' || symbol === 'CUSD' || symbol === 'CEUR' ? 18 : 6
+  };
+  return { ...chainDefault, address: override ?? chainDefault.address };
+}
+
+function supportedTokens() {
+  return tokenSchema.options.map((symbol) => tokenConfig(symbol));
 }
 
 function orderedCurrencies(a: Address, b: Address): [Address, Address] {
@@ -228,6 +323,19 @@ async function buildV4PoolFallbackQuote(input: z.infer<typeof quoteSchema>, deta
       apiAttempted: Boolean(details?.apiAttempted),
       apiStatus: details?.apiStatus,
       apiError: details?.apiError,
+      routeDiagnostics: routeDiagnosticsFor(input, {
+        source: 'v4-direct',
+        tokenIn: fromToken.address,
+        tokenOut: toToken.address,
+        amountInRaw: amountInRaw.toString(),
+        amountOutRaw: amountOutRaw.toString(),
+        priceImpactBps: 0,
+        priceImpactSource: 'unavailable',
+        routing: 'DIRECT_POOL',
+        protocols: ['V4'],
+        routeText: `${input.fromToken} → Uniswap v4 ${fee} → ${input.toToken}`,
+        pools: [{ fee, protocol: 'v4', tokenIn: input.fromToken, tokenOut: input.toToken }]
+      }),
       rawQuote: { quoter, poolKey: { currency0, currency1, fee, tickSpacing, hooks }, zeroForOne, amountOutRaw: amountOutRaw.toString() }
     };
   } catch (error) {
@@ -282,7 +390,19 @@ function buildFallbackQuote(input: z.infer<typeof quoteSchema>, details?: { reas
     fallbackReason,
     apiAttempted: Boolean(details?.apiAttempted),
     apiStatus: details?.apiStatus,
-    apiError: details?.apiError
+    apiError: details?.apiError,
+    routeDiagnostics: routeDiagnosticsFor(input, {
+      source: details?.apiAttempted ? 'dry-run' : 'oracle-fallback',
+      tokenIn: fromToken.address,
+      tokenOut: toToken.address,
+      amountInRaw,
+      amountOutRaw: estimatedAmountOutRaw,
+      priceImpactBps,
+      priceImpactSource: 'unavailable',
+      routing: details?.apiAttempted ? 'API_FALLBACK' : 'ORACLE_ONLY',
+      protocols: [],
+      routeText: `${input.fromToken} → ${input.toToken}`
+    })
   };
 }
 
@@ -335,6 +455,93 @@ async function buildQuote(input: z.infer<typeof quoteSchema>): Promise<CounterAg
   }
 }
 
+async function attachApprovalDiagnostics(input: z.infer<typeof quoteSchema>, quote: CounterAgentQuote): Promise<CounterAgentQuote> {
+  if (!uniswapApiKeyConfigured || quote.provider !== 'uniswap-trading-api') {
+    quote.routeDiagnostics.approval = { required: false, calldataReady: false, source: quote.provider };
+    return quote;
+  }
+
+  try {
+    const approval = await uniswap.checkApproval({
+      walletAddress: input.merchantWallet as Address,
+      token: quote.tokenIn,
+      amountRaw: quote.amountInRaw,
+      chainId
+    }) as { approval?: { to?: string; data?: string } | null; cancel?: unknown };
+    quote.routeDiagnostics.approval = {
+      required: Boolean(approval.approval),
+      target: approval.approval?.to,
+      calldataReady: Boolean(approval.approval?.data),
+      source: 'uniswap-check-approval'
+    };
+  } catch (error) {
+    quote.routeDiagnostics.approval = {
+      required: false,
+      calldataReady: false,
+      source: 'uniswap-check-approval',
+      error: error instanceof Error ? error.message : 'approval_check_failed'
+    };
+  }
+
+  return quote;
+}
+
+function routeScore(quote: CounterAgentQuote) {
+  const output = Number(quote.estimatedAmountOut);
+  const gasUsd = Number(quote.routeDiagnostics.gasFeeUSD ?? 0);
+  const impact = quote.priceImpactBps ?? 0;
+  const sourceBonus = quote.provider === 'uniswap-trading-api' ? 1_000 : quote.provider.includes('v4') ? 400 : 0;
+  return Math.round((Number.isFinite(output) ? output * 100 : 0) + sourceBonus - impact * 2 - (Number.isFinite(gasUsd) ? gasUsd * 10 : 0));
+}
+
+const previewPairsByChain: Record<number, [StablecoinSymbol, StablecoinSymbol][]> = {
+  42220: [['CUSD', 'USDC'], ['CEUR', 'USDC'], ['USDC', 'USDT'], ['CELO', 'CUSD']],
+  44787: [['CUSD', 'CEUR'], ['CELO', 'CUSD']],
+  11142220: [['CUSD', 'USDC'], ['CEUR', 'USDC'], ['USDC', 'USDT'], ['CELO', 'CUSD']]
+};
+
+async function buildRoutePreview(input: z.infer<typeof quoteSchema>) {
+  const pairs = previewPairsByChain[chainId] ?? [
+    [input.fromToken, input.toToken],
+    [input.fromToken, 'USDC'],
+    [input.fromToken, 'EURC'],
+    [input.fromToken, 'USDT']
+  ];
+  const uniquePairs = [...new Map(pairs.map(([from, to]) => [`${from}:${to}`, [from, to] as [StablecoinSymbol, StablecoinSymbol]])).values()]
+    .filter(([from, to]) => from !== to && tokenConfig(from).address !== defaultTokenAddress && tokenConfig(to).address !== defaultTokenAddress);
+
+  const routes = await Promise.all(uniquePairs.map(async ([fromToken, toToken]) => {
+    try {
+      const quote = await attachApprovalDiagnostics({ ...input, fromToken, toToken }, await buildQuote({ ...input, fromToken, toToken }));
+      return {
+        fromToken,
+        toToken,
+        ok: true,
+        score: routeScore(quote),
+        quoteId: quote.quoteId,
+        provider: quote.provider,
+        estimatedAmountOut: quote.estimatedAmountOut,
+        rate: quote.rate,
+        priceImpactBps: quote.priceImpactBps,
+        fallbackReason: quote.fallbackReason,
+        routeDiagnostics: quote.routeDiagnostics
+      };
+    } catch (error) {
+      return { fromToken, toToken, ok: false, score: -1_000_000, error: error instanceof Error ? error.message : 'route_preview_failed' };
+    }
+  }));
+
+  return {
+    ok: true,
+    chainId,
+    workflowId: input.workflowId,
+    routes: routes.sort((a, b) => b.score - a.score),
+    recommendation: routes.find((route) => route.ok)?.score && routes.find((route) => route.ok && route.score > 0)
+      ? 'convert-best-route'
+      : 'hold-no-positive-route'
+  };
+}
+
 app.get('/swap/recent', async (request, reply) => {
   const merchant = typeof (request.query as { merchant?: unknown }).merchant === 'string'
     ? (request.query as { merchant: string }).merchant
@@ -364,6 +571,7 @@ app.get('/healthz', async () => ({
     treasuryVaultFactoryAddress,
     universalRouterConfigured: Boolean(universalRouterAddress),
     universalRouterAddress,
+    supportedTokens: supportedTokens().filter((token) => token.address !== defaultTokenAddress),
     keeperHubConfigured,
     executorConfigured
   },
@@ -373,8 +581,17 @@ app.get('/healthz', async () => ({
   }
 }));
 
+app.get('/execution/tokens', async () => ({
+  ok: true,
+  chainId,
+  tokens: supportedTokens().map((token) => ({
+    ...token,
+    configured: token.address !== defaultTokenAddress
+  }))
+}));
+
 async function buildQuoteResponse(input: z.infer<typeof quoteSchema>) {
-  const quote = await buildQuote(input);
+  const quote = await attachApprovalDiagnostics(input, await buildQuote(input));
   pushRecentSwap({
     agent: 'A3',
     type: 'quote',
@@ -490,7 +707,7 @@ async function executeViaVault(input: z.infer<typeof executeSchema>) {
     return { ok: false, error: vault.error ?? 'vault_not_resolved', vault };
   }
 
-  const quote = await buildQuote({ ...input, merchantWallet: vaultAddress });
+  const quote = await attachApprovalDiagnostics({ ...input, merchantWallet: vaultAddress }, await buildQuote({ ...input, merchantWallet: vaultAddress }));
   const routerCall = await buildVaultRouterCall(input, vaultAddress, quote);
   const expectedAmountOut = BigInt(quote.estimatedAmountOutRaw);
   const minAmountOut = minAmountOutFor(quote);
@@ -578,7 +795,7 @@ async function buildExecuteResponse(input: z.infer<typeof executeSchema>) {
     };
   }
 
-  const quote = await buildQuote(input);
+  const quote = await attachApprovalDiagnostics(input, await buildQuote(input));
 
   if (executionMode === 'vault-dry-run' || executionMode === 'vault-live') {
     const result = await executeViaVault(input) as {
@@ -659,6 +876,16 @@ app.post('/execution/quote', async (request, reply) => {
   }
 
   return reply.send(await buildQuoteResponse(parsed.data));
+});
+
+app.post('/execution/routes/preview', async (request, reply) => {
+  const parsed = quoteSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    return reply.code(400).send({ ok: false, error: 'invalid_request', details: parsed.error.flatten() });
+  }
+
+  return reply.send(await buildRoutePreview(parsed.data));
 });
 
 app.post('/execution/swap', async (request, reply) => {

@@ -59,7 +59,7 @@ export type OnboardingRequest = {
   ensName?: string
   fxThresholdBps: number
   riskTolerance: "Conservative" | "Moderate" | "Aggressive"
-  preferredStablecoin: "USDC" | "EURC" | "USDT"
+  preferredStablecoin: BaseStablecoin
   telegramChat?: string
   registryTxHash?: `0x${string}`
   registrationSignature?: `0x${string}`
@@ -73,7 +73,7 @@ export type OnboardingPrepareRequest = {
   ensName?: string
   fxThresholdBps: number
   riskTolerance: "Conservative" | "Moderate" | "Aggressive"
-  preferredStablecoin: "USDC" | "EURC" | "USDT"
+  preferredStablecoin: BaseStablecoin
   telegramChat?: string
 }
 
@@ -162,8 +162,8 @@ export type WorkflowEvaluateRequest = {
   merchantEns?: string
   walletAddress: `0x${string}`
   chainId?: number
-  fromToken: "USDC" | "EURC" | "USDT"
-  toToken?: "USDC" | "EURC" | "USDT"
+  fromToken: BaseStablecoin
+  toToken?: BaseStablecoin
   amount: string
   fxThresholdBps?: number
   riskTolerance?: "conservative" | "moderate" | "aggressive" | "Conservative" | "Moderate" | "Aggressive"
@@ -214,6 +214,20 @@ export type WorkflowEvaluateResponse = {
       baselineRate?: number
       feeBps?: number
       priceImpactBps?: number
+      routeDiagnostics?: {
+        source?: string
+        routing?: string
+        protocols?: string[]
+        chainId?: number
+        routeText?: string
+        priceImpactBps?: number
+        priceImpactSource?: string
+        gasEstimate?: string
+        gasFeeUSD?: string
+        quoteValidUntil?: string
+        pools?: { address?: string; fee?: number; protocol?: string; tokenIn?: string; tokenOut?: string }[]
+        approval?: { required?: boolean; target?: string; calldataReady?: boolean; source?: string; error?: string }
+      }
       quoteId?: string
       [key: string]: unknown
     }
@@ -240,8 +254,8 @@ export type WorkflowEvaluateResponse = {
   error?: string
 }
 
-export type BaseStablecoin = "USDC" | "EURC" | "USDT"
-export type CeloStablecoin = "cUSD" | "cEUR" | "cREAL" | "cKES" | "cCOP" | "cGHS"
+export type BaseStablecoin = "USDC" | "EURC" | "USDT" | "CUSD" | "CEUR" | "CELO"
+export type CeloStablecoin = "CUSD" | "CEUR" | "CELO" | "cUSD" | "cEUR" | "cREAL" | "cKES" | "cCOP" | "cGHS"
 export type SupportedStablecoin = BaseStablecoin | CeloStablecoin
 
 export type VaultPlanRequest = {

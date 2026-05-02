@@ -22,7 +22,7 @@ import {
 import { dynamicConfigured } from "@/lib/dynamic-config"
 
 const riskLevels = ["Conservative", "Moderate", "Aggressive"] as const
-const stablecoins = ["USDC", "EURC", "USDT"] as const
+const stablecoins = ["USDC", "EURC", "USDT", "CUSD", "CEUR", "CELO"] as const
 const ensParent = "counteragent.eth"
 
 const onboardingSteps = [
