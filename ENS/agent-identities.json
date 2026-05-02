@@ -1,0 +1,61 @@
+{
+  "parentName": "counteragents.eth",
+  "description": "Role-based ENS identity mesh for CounterAgent agents.",
+  "agents": [
+    {
+      "role": "orchestrator",
+      "label": "orchestrator",
+      "displayName": "Treasury Orchestrator",
+      "walletEnv": "A0_AGENT_WALLET_ADDRESS",
+      "service": "counteragent-orchestrator",
+      "endpointEnv": "A0_PUBLIC_ENDPOINT",
+      "description": "Coordinates merchant onboarding, ENS config lookup, policy routing, execution, and reporting.",
+      "capabilities": ["workflow-coordination", "merchant-session", "registry-relay", "audit-routing"],
+      "protocols": ["ENS", "OpenClaw", "AXL", "HTTP"]
+    },
+    {
+      "role": "monitor",
+      "label": "monitor",
+      "displayName": "ENS Monitor",
+      "walletEnv": "A1_AGENT_WALLET_ADDRESS",
+      "service": "counteragent-monitor",
+      "endpointEnv": "A1_PUBLIC_ENDPOINT",
+      "description": "Reads merchant ENS records, watches treasury configuration, and emits threshold signals.",
+      "capabilities": ["ens-read", "treasury-config", "wallet-watch", "threshold-signal"],
+      "protocols": ["ENS", "MCP", "OpenClaw"]
+    },
+    {
+      "role": "decision",
+      "label": "decision",
+      "displayName": "Risk Decision Engine",
+      "walletEnv": "A2_AGENT_WALLET_ADDRESS",
+      "service": "counteragent-decision",
+      "endpointEnv": "A2_PUBLIC_ENDPOINT",
+      "description": "Scores quotes against policy, risk tolerance, price impact, fees, and approval requirements.",
+      "capabilities": ["risk-scoring", "policy-evaluation", "route-ranking", "confidence-score"],
+      "protocols": ["ENS", "OpenClaw", "AXL"]
+    },
+    {
+      "role": "execution",
+      "label": "execution",
+      "displayName": "Uniswap Execution Agent",
+      "walletEnv": "A3_AGENT_WALLET_ADDRESS",
+      "service": "counteragent-execution",
+      "endpointEnv": "A3_PUBLIC_ENDPOINT",
+      "description": "Builds Uniswap route quotes, approval diagnostics, and wallet-signable swap transactions.",
+      "capabilities": ["uniswap-quote", "route-diagnostics", "approval-check", "swap-calldata"],
+      "protocols": ["ENS", "Uniswap", "OpenClaw"]
+    },
+    {
+      "role": "reporting",
+      "label": "reporting",
+      "displayName": "Proof Reporting Agent",
+      "walletEnv": "A4_AGENT_WALLET_ADDRESS",
+      "service": "counteragent-reporting",
+      "endpointEnv": "A4_PUBLIC_ENDPOINT",
+      "description": "Publishes durable workflow receipts and alert pointers for merchant audit trails.",
+      "capabilities": ["report-publish", "content-hash", "telegram-alert", "audit-trail"],
+      "protocols": ["ENS", "0G", "OpenClaw"]
+    }
+  ]
+}

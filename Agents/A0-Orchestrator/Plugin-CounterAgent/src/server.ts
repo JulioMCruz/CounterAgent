@@ -127,6 +127,29 @@ const ensProfileRecordSchema = z.object({
   subnames: z.array(z.string().min(1).max(255)).max(25).optional().default([])
 });
 
+const agentRoleNames = ['orchestrator', 'monitor', 'decision', 'execution', 'reporting'] as const;
+const ensAgentRecordSchema = z.object({
+  parentName: z.string().min(3).max(255).optional(),
+  manifestUri: z.string().max(500).optional().default(''),
+  agents: z
+    .array(
+      z.object({
+        role: z.enum(agentRoleNames),
+        label: z.string().min(1).max(63).regex(ensLabelPattern).optional(),
+        displayName: z.string().min(1).max(80),
+        wallet: z.string().refine((value) => value === '' || Boolean(isAddress(value)), 'Invalid agent wallet').optional().default(''),
+        service: z.string().min(1).max(80),
+        endpoint: z.string().max(300).optional().default(''),
+        description: z.string().max(280).optional().default(''),
+        capabilities: z.array(z.string().min(1).max(80)).max(12).optional().default([]),
+        protocols: z.array(z.string().min(1).max(40)).max(8).optional().default([])
+      })
+    )
+    .min(1)
+    .max(10)
+    .optional()
+});
+
 const riskSchema = z.enum(['conservative', 'moderate', 'aggressive']).or(
   z.enum(['Conservative', 'Moderate', 'Aggressive']).transform((value) => value.toLowerCase() as 'conservative' | 'moderate' | 'aggressive')
 );
@@ -816,6 +839,50 @@ app.post('/ens/profile/records', async (request, reply) => {
       ok: false,
       error: 'ens_profile_record_preparation_failed'
     });
+  }
+});
+
+app.get('/ens/agents/manifest', async (_request, reply) => {
+  if (!monitorAgentUrl) {
+    return reply.code(503).send({ ok: false, error: 'ens_monitor_not_configured' });
+  }
+
+  try {
+    const payload = await getJson<Record<string, unknown>>(`${monitorAgentUrl.replace(/\/$/, '')}/ens/agents/manifest`);
+    return reply.send({
+      ...payload,
+      proxiedBy: 'A0-Orchestrator/Plugin-CounterAgent'
+    });
+  } catch (error) {
+    app.log.error({ error }, 'ENS agent manifest proxy failed');
+    return reply.code(502).send({ ok: false, error: 'ens_agent_manifest_failed' });
+  }
+});
+
+app.post('/ens/agents/records', async (request, reply) => {
+  const parsed = ensAgentRecordSchema.safeParse(request.body ?? {});
+
+  if (!parsed.success) {
+    return reply.code(400).send({
+      ok: false,
+      error: 'invalid_request',
+      details: parsed.error.flatten()
+    });
+  }
+
+  if (!monitorAgentUrl) {
+    return reply.code(503).send({ ok: false, error: 'ens_monitor_not_configured' });
+  }
+
+  try {
+    const payload = await postJson<Record<string, unknown>>(`${monitorAgentUrl.replace(/\/$/, '')}/ens/agents/records`, parsed.data);
+    return reply.send({
+      ...payload,
+      proxiedBy: 'A0-Orchestrator/Plugin-CounterAgent'
+    });
+  } catch (error) {
+    request.log.error({ error }, 'ENS agent record preparation failed');
+    return reply.code(502).send({ ok: false, error: 'ens_agent_record_preparation_failed' });
   }
 });
 

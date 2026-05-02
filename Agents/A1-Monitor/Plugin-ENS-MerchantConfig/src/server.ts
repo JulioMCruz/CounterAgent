@@ -43,6 +43,8 @@ const counterAgentEnsRecordKeys = [
   'counteragent.merchant_image',
   'counteragent.header',
   'counteragent.subnames',
+  'counteragent.agent_mesh',
+  'counteragent.agent_manifest_uri',
   'avatar',
   'header',
   'url',
@@ -76,6 +78,87 @@ const profileRecordSchema = z.object({
 
 const zeroAddress = '0x0000000000000000000000000000000000000000' as const;
 const labelPattern = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+const agentRoleNames = ['orchestrator', 'monitor', 'decision', 'execution', 'reporting'] as const;
+const agentRoleSchema = z.enum(agentRoleNames);
+
+const agentIdentitySchema = z.object({
+  role: agentRoleSchema,
+  label: z.string().min(1).max(63).regex(labelPattern, 'Use lowercase letters, numbers, and internal hyphens only').optional(),
+  displayName: z.string().min(1).max(80),
+  wallet: z.string().refine((value) => value === '' || Boolean(isAddress(value)), 'Invalid agent wallet').optional().default(''),
+  service: z.string().min(1).max(80),
+  endpoint: z.string().max(300).optional().default(''),
+  description: z.string().max(280).optional().default(''),
+  capabilities: z.array(z.string().min(1).max(80)).max(12).optional().default([]),
+  protocols: z.array(z.string().min(1).max(40)).max(8).optional().default([])
+});
+
+const agentRecordsSchema = z.object({
+  parentName: z.string().min(3).max(255).optional(),
+  manifestUri: z.string().max(500).optional().default(''),
+  agents: z.array(agentIdentitySchema).min(1).max(10).optional()
+});
+
+type AgentIdentity = z.infer<typeof agentIdentitySchema>;
+
+const defaultAgentIdentities: AgentIdentity[] = [
+  {
+    role: 'orchestrator',
+    label: 'orchestrator',
+    displayName: 'Treasury Orchestrator',
+    wallet: process.env.A0_AGENT_WALLET_ADDRESS || '',
+    service: 'counteragent-orchestrator',
+    endpoint: process.env.A0_PUBLIC_ENDPOINT || '',
+    description: 'Coordinates merchant onboarding, ENS config lookup, policy routing, execution, and reporting.',
+    capabilities: ['workflow-coordination', 'merchant-session', 'registry-relay', 'audit-routing'],
+    protocols: ['ENS', 'OpenClaw', 'AXL', 'HTTP']
+  },
+  {
+    role: 'monitor',
+    label: 'monitor',
+    displayName: 'ENS Monitor',
+    wallet: process.env.A1_AGENT_WALLET_ADDRESS || '',
+    service: 'counteragent-monitor',
+    endpoint: process.env.A1_PUBLIC_ENDPOINT || '',
+    description: 'Reads merchant ENS records, watches treasury configuration, and emits threshold signals.',
+    capabilities: ['ens-read', 'treasury-config', 'wallet-watch', 'threshold-signal'],
+    protocols: ['ENS', 'MCP', 'OpenClaw']
+  },
+  {
+    role: 'decision',
+    label: 'decision',
+    displayName: 'Risk Decision Engine',
+    wallet: process.env.A2_AGENT_WALLET_ADDRESS || '',
+    service: 'counteragent-decision',
+    endpoint: process.env.A2_PUBLIC_ENDPOINT || '',
+    description: 'Scores quotes against policy, risk tolerance, price impact, fees, and approval requirements.',
+    capabilities: ['risk-scoring', 'policy-evaluation', 'route-ranking', 'confidence-score'],
+    protocols: ['ENS', 'OpenClaw', 'AXL']
+  },
+  {
+    role: 'execution',
+    label: 'execution',
+    displayName: 'Uniswap Execution Agent',
+    wallet: process.env.A3_AGENT_WALLET_ADDRESS || '',
+    service: 'counteragent-execution',
+    endpoint: process.env.A3_PUBLIC_ENDPOINT || '',
+    description: 'Builds Uniswap route quotes, approval diagnostics, and wallet-signable swap transactions.',
+    capabilities: ['uniswap-quote', 'route-diagnostics', 'approval-check', 'swap-calldata'],
+    protocols: ['ENS', 'Uniswap', 'OpenClaw']
+  },
+  {
+    role: 'reporting',
+    label: 'reporting',
+    displayName: 'Proof Reporting Agent',
+    wallet: process.env.A4_AGENT_WALLET_ADDRESS || '',
+    service: 'counteragent-reporting',
+    endpoint: process.env.A4_PUBLIC_ENDPOINT || '',
+    description: 'Publishes durable workflow receipts and alert pointers for merchant audit trails.',
+    capabilities: ['report-publish', 'content-hash', 'telegram-alert', 'audit-trail'],
+    protocols: ['ENS', '0G', 'OpenClaw']
+  }
+];
 
 const provisionSchema = z.object({
   label: z.string().min(1).max(63).regex(labelPattern, 'Use lowercase letters, numbers, and internal hyphens only'),
@@ -231,6 +314,67 @@ const buildProfileRecordMap = (input: z.infer<typeof profileRecordSchema>) => {
     'org.telegram': telegram,
     'com.linkedin': input.socials.linkedin?.trim() || '',
     'com.instagram': instagram
+  };
+};
+
+const compactJson = (value: unknown) => JSON.stringify(value);
+const agentFullName = (agent: AgentIdentity, configuredParentName = parentName) => `${agent.label || agent.role}.${configuredParentName}`;
+
+const agentRecordMap = (agent: AgentIdentity, configuredParentName = parentName) => {
+  const name = agentFullName(agent, configuredParentName);
+  const profile = {
+    version: 1,
+    name,
+    role: agent.role,
+    displayName: agent.displayName,
+    wallet: agent.wallet || null,
+    service: agent.service,
+    endpoint: agent.endpoint || null,
+    capabilities: agent.capabilities,
+    protocols: agent.protocols
+  };
+
+  return {
+    name,
+    role: agent.role,
+    label: agent.label || agent.role,
+    address: agent.wallet || zeroAddress,
+    records: {
+      'counteragent.agent.role': agent.role,
+      'counteragent.agent.display': agent.displayName,
+      'counteragent.agent.wallet': agent.wallet || '',
+      'counteragent.agent.service': agent.service,
+      'counteragent.agent.endpoint': agent.endpoint || '',
+      'counteragent.agent.capabilities': agent.capabilities.join(','),
+      'counteragent.agent.protocols': agent.protocols.join(','),
+      'counteragent.agent.profile': compactJson(profile),
+      description: agent.description || '',
+      url: agent.endpoint || ''
+    }
+  };
+};
+
+const buildAgentRecords = (input: z.infer<typeof agentRecordsSchema>) => {
+  const configuredParentName = (input.parentName || parentName).toLowerCase();
+  const agents = (input.agents ?? defaultAgentIdentities).map((agent) => ({ ...agent, label: (agent.label || agent.role).toLowerCase() }));
+  const identities = agents.map((agent) => agentRecordMap(agent, configuredParentName));
+  const mesh = identities.map((identity) => ({
+    name: identity.name,
+    role: identity.role,
+    service: identity.records['counteragent.agent.service'],
+    wallet: identity.records['counteragent.agent.wallet'] || null,
+    capabilities: identity.records['counteragent.agent.capabilities'].split(',').filter(Boolean)
+  }));
+
+  return {
+    parentName: configuredParentName,
+    subnames: identities.map((identity) => identity.name),
+    parentRecords: {
+      'counteragent.subnames': identities.map((identity) => identity.name).join(','),
+      'counteragent.agent_mesh': compactJson(mesh),
+      'counteragent.agent_manifest_uri': input.manifestUri || ''
+    },
+    agents: identities
   };
 };
 
@@ -504,6 +648,31 @@ app.post('/ens/profile/records', async (request, reply) => {
     ok: true,
     records: buildProfileRecordMap(parsed.data),
     note: 'Submit these text records to the ENS public resolver from the wallet that owns the ENS name.'
+  });
+});
+
+app.get('/ens/agents/manifest', async (_request, reply) => {
+  return reply.send({
+    ok: true,
+    ...buildAgentRecords({ agents: defaultAgentIdentities, manifestUri: '' })
+  });
+});
+
+app.post('/ens/agents/records', async (request, reply) => {
+  const parsed = agentRecordsSchema.safeParse(request.body ?? {});
+
+  if (!parsed.success) {
+    return reply.code(400).send({
+      ok: false,
+      error: 'invalid_request',
+      details: parsed.error.flatten()
+    });
+  }
+
+  return reply.send({
+    ok: true,
+    ...buildAgentRecords(parsed.data),
+    note: 'Use these ENS subnames and text records to publish role-based agent identities. Wallets should come from each funded agent account; private keys stay server-side.'
   });
 });
 
