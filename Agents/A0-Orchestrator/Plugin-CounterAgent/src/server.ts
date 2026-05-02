@@ -1,6 +1,7 @@
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import Fastify from 'fastify';
+import { randomUUID } from 'node:crypto';
 import {
   createWalletClient,
   createPublicClient,
@@ -14,6 +15,7 @@ import {
 import { privateKeyToAccount } from 'viem/accounts';
 import { base, baseSepolia, celo, celoSepolia } from 'viem/chains';
 import { z } from 'zod';
+import { AxlClient, type AxlMode, type AxlSendResult } from './axl-client.js';
 
 const merchantRegistryAbi = [
   {
@@ -161,6 +163,19 @@ const decisionAgentUrl = process.env.DECISION_AGENT_URL;
 const executionAgentUrl = process.env.EXECUTION_AGENT_URL;
 const executionAgentAddress = process.env.EXECUTION_AGENT_ADDRESS as Address | undefined;
 const axlMessagingUrl = process.env.GENSYN_AXL_MESSAGING_URL;
+const axlClient = new AxlClient({
+  mode: process.env.GENSYN_AXL_MODE,
+  nodeUrl: process.env.GENSYN_AXL_NODE_URL,
+  peers: {
+    A1: process.env.GENSYN_AXL_PEER_A1,
+    A2: process.env.GENSYN_AXL_PEER_A2,
+    A3: process.env.GENSYN_AXL_PEER_A3,
+    A4: process.env.GENSYN_AXL_PEER_A4
+  }
+});
+const axlDecisionService = process.env.GENSYN_AXL_SERVICE_A2 ?? 'counteragent-decision';
+const axlExecutionService = process.env.GENSYN_AXL_SERVICE_A3 ?? 'counteragent-execution';
+const axlFallbackToHttp = process.env.GENSYN_AXL_FALLBACK_HTTP !== 'false';
 const ensParentName = process.env.ENS_PARENT_NAME ?? 'counteragents.eth';
 
 const stablecoinAddressesByChain: Record<number, Record<string, Address>> = {
@@ -329,9 +344,66 @@ app.get('/healthz', async () => ({
     decisionConfigured: Boolean(decisionAgentUrl),
     executionConfigured: Boolean(executionAgentUrl),
     gensynAxlMessagingConfigured: Boolean(axlMessagingUrl),
+    gensynAxlNodeConfigured: Boolean(axlClient.nodeUrl),
+    gensynAxlMode: axlClient.mode,
     registryRelayerConfigured: Boolean(registryRelayerPrivateKey)
   }
 }));
+
+const axlTraceLimit = Number(process.env.GENSYN_AXL_TRACE_LIMIT ?? 100);
+type AxlTraceRecord = {
+  workflowId: string;
+  messageId: string;
+  sequence: number;
+  fromAgent: string;
+  toAgent: string;
+  messageType: string;
+  createdAt: string;
+  mode: AxlMode;
+  adapter?: unknown;
+  axl?: AxlSendResult;
+};
+const axlTrace: AxlTraceRecord[] = [];
+let axlSequence = 0;
+
+function pushAxlTrace(record: AxlTraceRecord) {
+  axlTrace.unshift(record);
+  axlTrace.splice(axlTraceLimit);
+}
+
+app.get('/axl/status', async () => {
+  let topology: unknown = null;
+  let topologyError: string | undefined;
+
+  if (axlClient.nodeUrl) {
+    try {
+      topology = await axlClient.topology();
+    } catch (error) {
+      topologyError = error instanceof Error ? error.message : 'axl_topology_failed';
+    }
+  }
+
+  return {
+    ok: true,
+    mode: axlClient.mode,
+    nodeConfigured: Boolean(axlClient.nodeUrl),
+    messagingAdapterConfigured: Boolean(axlMessagingUrl),
+    peers: {
+      A1: Boolean(axlClient.peers.A1),
+      A2: Boolean(axlClient.peers.A2),
+      A3: Boolean(axlClient.peers.A3),
+      A4: Boolean(axlClient.peers.A4)
+    },
+    services: {
+      decision: axlDecisionService,
+      execution: axlExecutionService
+    },
+    fallbackToHttp: axlFallbackToHttp,
+    topology,
+    topologyError,
+    recentMessages: axlTrace.slice(0, 25)
+  };
+});
 
 type DashboardMonitorEvent = {
   agent: 'A1';
@@ -438,14 +510,61 @@ async function emitAxlMessage(input: {
   payload?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 }) {
-  if (!axlMessagingUrl) return null;
+  const sequence = ++axlSequence;
+  const messageId = randomUUID();
+  const createdAt = new Date().toISOString();
+  const envelope = {
+    ...input,
+    messageId,
+    sequence,
+    createdAt,
+    metadata: {
+      ...(input.metadata ?? {}),
+      orchestrator: 'A0',
+      mode: axlClient.mode
+    }
+  };
 
-  try {
-    return await postJson(`${axlMessagingUrl.replace(/\/$/, '')}/axl/messages`, input);
-  } catch (error) {
-    app.log.warn({ error, messageType: input.messageType }, 'Gensyn AXL messaging adapter unavailable');
-    return null;
+  let adapter: unknown = null;
+  if (axlMessagingUrl) {
+    try {
+      adapter = await postJson(`${axlMessagingUrl.replace(/\/$/, '')}/axl/messages`, input);
+    } catch (error) {
+      app.log.warn({ error, messageType: input.messageType }, 'Gensyn AXL messaging adapter unavailable');
+      adapter = { ok: false, error: 'messaging_adapter_unavailable' };
+    }
   }
+
+  let axl: AxlSendResult | undefined;
+  if (axlClient.enabled) {
+    const peerId = axlClient.peerForAgent(input.toAgent);
+    try {
+      axl = await axlClient.send(peerId, envelope);
+    } catch (error) {
+      axl = {
+        ok: false,
+        mode: axlClient.mode,
+        transport: 'axl-send',
+        peerId,
+        error: error instanceof Error ? error.message : 'axl_send_failed'
+      };
+    }
+  }
+
+  pushAxlTrace({
+    workflowId: input.workflowId,
+    messageId,
+    sequence,
+    fromAgent: input.fromAgent,
+    toAgent: input.toAgent,
+    messageType: input.messageType,
+    createdAt,
+    mode: axlClient.mode,
+    adapter,
+    axl
+  });
+
+  return { ok: true, messageId, sequence, adapter, axl };
 }
 
 async function publishOnboardingReport(input: {
@@ -1070,6 +1189,35 @@ app.get('/dashboard/state', async (request, reply) => {
   });
 });
 
+async function callWorkflowAgent<T>(input: {
+  agent: 'A2' | 'A3';
+  service: string;
+  tool: string;
+  payload: Record<string, unknown>;
+  httpUrl: string;
+  workflowId: string;
+}) {
+  if (axlClient.mode === 'transport') {
+    const peerId = input.agent === 'A2' ? axlClient.peers.A2 : axlClient.peers.A3;
+    const result = await axlClient.callMcp<T>({
+      peerId,
+      service: input.service,
+      tool: input.tool,
+      arguments: input.payload,
+      id: `${input.workflowId}:${input.tool}`
+    });
+
+    if (result.ok && result.result) {
+      return result.result;
+    }
+
+    app.log.warn({ result, agent: input.agent, tool: input.tool }, 'AXL transport unavailable for workflow agent');
+    if (!axlFallbackToHttp) throw new Error(result.error ?? 'axl_transport_failed');
+  }
+
+  return postJson<T>(input.httpUrl, input.payload);
+}
+
 app.post('/workflow/evaluate', async (request, reply) => {
   const parsed = workflowSchema.safeParse(request.body);
 
@@ -1112,7 +1260,7 @@ app.post('/workflow/evaluate', async (request, reply) => {
       }
     });
 
-    const quote = await postJson<{
+    const quote = await callWorkflowAgent<{
       ok: boolean;
       workflowId?: string;
       quote: {
@@ -1123,15 +1271,22 @@ app.post('/workflow/evaluate', async (request, reply) => {
         priceImpactBps?: number;
         [key: string]: unknown;
       };
-    }>(`${executionAgentUrl.replace(/\/$/, '')}/execution/quote`, {
+    }>({
+      agent: 'A3',
+      service: axlExecutionService,
+      tool: 'get_quote',
+      httpUrl: `${executionAgentUrl.replace(/\/$/, '')}/execution/quote`,
       workflowId,
-      merchantWallet: workflow.walletAddress,
-      fromToken: workflow.fromToken,
-      toToken: workflow.toToken,
-      amount: workflow.amount,
-      slippageBps: workflow.slippageBps,
-      dryRunRate: workflow.dryRunRate,
-      baselineRate: workflow.baselineRate
+      payload: {
+        workflowId,
+        merchantWallet: workflow.walletAddress,
+        fromToken: workflow.fromToken,
+        toToken: workflow.toToken,
+        amount: workflow.amount,
+        slippageBps: workflow.slippageBps,
+        dryRunRate: workflow.dryRunRate,
+        baselineRate: workflow.baselineRate
+      }
     });
 
     await emitAxlMessage({
@@ -1154,7 +1309,7 @@ app.post('/workflow/evaluate', async (request, reply) => {
       }
     });
 
-    const decision = await postJson<{
+    const decision = await callWorkflowAgent<{
       ok: boolean;
       decision: {
         action: 'HOLD' | 'CONVERT';
@@ -1162,23 +1317,30 @@ app.post('/workflow/evaluate', async (request, reply) => {
         reason: string;
         [key: string]: unknown;
       };
-    }>(`${decisionAgentUrl.replace(/\/$/, '')}/decision/evaluate`, {
+    }>({
+      agent: 'A2',
+      service: axlDecisionService,
+      tool: 'evaluate_decision',
+      httpUrl: `${decisionAgentUrl.replace(/\/$/, '')}/decision/evaluate`,
       workflowId,
-      merchantEns,
-      merchantWallet: workflow.walletAddress,
-      fromToken: workflow.fromToken,
-      toToken: workflow.toToken,
-      amount: workflow.amount,
-      fxThresholdBps: workflow.fxThresholdBps,
-      riskTolerance: workflow.riskTolerance,
-      quote: {
-        provider: quote.quote.provider,
-        rate: quote.quote.rate,
-        baselineRate: quote.quote.baselineRate ?? workflow.baselineRate,
-        feeBps: quote.quote.feeBps ?? 0,
-        priceImpactBps: quote.quote.priceImpactBps ?? 0
-      },
-      metadata: workflow.metadata
+      payload: {
+        workflowId,
+        merchantEns,
+        merchantWallet: workflow.walletAddress,
+        fromToken: workflow.fromToken,
+        toToken: workflow.toToken,
+        amount: workflow.amount,
+        fxThresholdBps: workflow.fxThresholdBps,
+        riskTolerance: workflow.riskTolerance,
+        quote: {
+          provider: quote.quote.provider,
+          rate: quote.quote.rate,
+          baselineRate: quote.quote.baselineRate ?? workflow.baselineRate,
+          feeBps: quote.quote.feeBps ?? 0,
+          priceImpactBps: quote.quote.priceImpactBps ?? 0
+        },
+        metadata: workflow.metadata
+      }
     });
 
     await emitAxlMessage({
@@ -1200,25 +1362,32 @@ app.post('/workflow/evaluate', async (request, reply) => {
       }
     });
 
-    const execution = await postJson<{
+    const execution = await callWorkflowAgent<{
       ok: boolean;
       status: string;
       transactionHash?: string | null;
       [key: string]: unknown;
-    }>(`${executionAgentUrl.replace(/\/$/, '')}/execution/execute`, {
+    }>({
+      agent: 'A3',
+      service: axlExecutionService,
+      tool: 'execute_swap',
+      httpUrl: `${executionAgentUrl.replace(/\/$/, '')}/execution/execute`,
       workflowId,
-      merchantWallet: workflow.walletAddress,
-      fromToken: workflow.fromToken,
-      toToken: workflow.toToken,
-      amount: workflow.amount,
-      slippageBps: workflow.slippageBps,
-      dryRunRate: workflow.dryRunRate,
-      baselineRate: workflow.baselineRate,
-      idempotencyKey: workflow.idempotencyKey,
-      quoteId: quote.quote.quoteId,
-      decision: {
-        action: decision.decision.action,
-        confidence: decision.decision.confidence
+      payload: {
+        workflowId,
+        merchantWallet: workflow.walletAddress,
+        fromToken: workflow.fromToken,
+        toToken: workflow.toToken,
+        amount: workflow.amount,
+        slippageBps: workflow.slippageBps,
+        dryRunRate: workflow.dryRunRate,
+        baselineRate: workflow.baselineRate,
+        idempotencyKey: workflow.idempotencyKey,
+        quoteId: quote.quote.quoteId,
+        decision: {
+          action: decision.decision.action,
+          confidence: decision.decision.confidence
+        }
       }
     });
 

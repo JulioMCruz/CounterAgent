@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query"
 import { AgentActivity } from "@/components/dashboard/agent-activity"
+import { AxlTransportStatus } from "@/components/dashboard/axl-transport-status"
 import { AutopilotVaultCard } from "@/components/dashboard/autopilot-vault-card"
 import { Holdings } from "@/components/dashboard/holdings"
 import { MonthlySavings } from "@/components/dashboard/monthly-savings"
@@ -25,6 +26,8 @@ export function LiveDashboard() {
   return (
     <>
       <WorkflowEvaluation onCompleted={() => window.setTimeout(() => void dashboardQuery.refetch(), 3_000)} />
+
+      <AxlTransportStatus />
 
       <AutopilotVaultCard />
 

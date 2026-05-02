@@ -8,6 +8,13 @@ const riskSchema = z.enum(['conservative', 'moderate', 'aggressive']).or(
   z.enum(['Conservative', 'Moderate', 'Aggressive']).transform((value) => value.toLowerCase() as 'conservative' | 'moderate' | 'aggressive')
 );
 
+const jsonRpcSchema = z.object({
+  jsonrpc: z.string().optional(),
+  id: z.unknown().optional(),
+  method: z.string().min(1),
+  params: z.record(z.unknown()).optional().default({})
+});
+
 const decisionSchema = z.object({
   workflowId: z.string().min(1).max(120).optional(),
   merchantEns: z.string().min(1).max(255).optional(),
@@ -128,8 +135,43 @@ app.get('/healthz', async () => ({
   ok: true,
   status: 'live',
   role: 'decision',
-  minConfidence
+  minConfidence,
+  mcp: {
+    service: 'counteragent-decision',
+    tools: ['evaluate_decision']
+  }
 }));
+
+function buildDecisionResponse(input: z.infer<typeof decisionSchema>) {
+  const decision = evaluateDecision(input);
+  pushRecentDecision({
+    agent: 'A2',
+    workflowId: input.workflowId,
+    merchant: input.merchantWallet,
+    action: decision.action,
+    confidence: decision.confidence,
+    spreadBps: decision.spreadBps,
+    netScoreBps: decision.netScoreBps,
+    thresholdBps: decision.thresholdBps,
+    fromToken: input.fromToken,
+    toToken: input.toToken,
+    amount: input.amount,
+    reason: decision.reason,
+    timestamp: new Date().toISOString()
+  });
+
+  return {
+    ok: true,
+    workflowId: input.workflowId,
+    merchantEns: input.merchantEns,
+    merchantWallet: input.merchantWallet,
+    fromToken: input.fromToken,
+    toToken: input.toToken,
+    amount: input.amount,
+    quote: input.quote,
+    decision
+  };
+}
 
 app.post('/decision/evaluate', async (request, reply) => {
   const parsed = decisionSchema.safeParse(request.body);
@@ -142,33 +184,44 @@ app.post('/decision/evaluate', async (request, reply) => {
     });
   }
 
-  const decision = evaluateDecision(parsed.data);
-  pushRecentDecision({
-    agent: 'A2',
-    workflowId: parsed.data.workflowId,
-    merchant: parsed.data.merchantWallet,
-    action: decision.action,
-    confidence: decision.confidence,
-    spreadBps: decision.spreadBps,
-    netScoreBps: decision.netScoreBps,
-    thresholdBps: decision.thresholdBps,
-    fromToken: parsed.data.fromToken,
-    toToken: parsed.data.toToken,
-    amount: parsed.data.amount,
-    reason: decision.reason,
-    timestamp: new Date().toISOString()
-  });
+  return reply.send(buildDecisionResponse(parsed.data));
+});
+
+app.post('/mcp', async (request, reply) => {
+  const parsed = jsonRpcSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.code(400).send({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'invalid_request' } });
+  }
+
+  if (parsed.data.method === 'tools/list') {
+    return reply.send({
+      jsonrpc: '2.0',
+      id: parsed.data.id,
+      result: {
+        tools: [{ name: 'evaluate_decision', description: 'Evaluate whether a treasury workflow should hold or convert.' }]
+      }
+    });
+  }
+
+  if (parsed.data.method !== 'tools/call') {
+    return reply.send({ jsonrpc: '2.0', id: parsed.data.id, error: { code: -32601, message: 'method_not_found' } });
+  }
+
+  const name = typeof parsed.data.params.name === 'string' ? parsed.data.params.name : '';
+  if (name !== 'evaluate_decision') {
+    return reply.send({ jsonrpc: '2.0', id: parsed.data.id, error: { code: -32601, message: 'tool_not_found' } });
+  }
+
+  const args = parsed.data.params.arguments ?? {};
+  const decisionInput = decisionSchema.safeParse(args);
+  if (!decisionInput.success) {
+    return reply.send({ jsonrpc: '2.0', id: parsed.data.id, error: { code: -32602, message: 'invalid_tool_arguments' } });
+  }
 
   return reply.send({
-    ok: true,
-    workflowId: parsed.data.workflowId,
-    merchantEns: parsed.data.merchantEns,
-    merchantWallet: parsed.data.merchantWallet,
-    fromToken: parsed.data.fromToken,
-    toToken: parsed.data.toToken,
-    amount: parsed.data.amount,
-    quote: parsed.data.quote,
-    decision
+    jsonrpc: '2.0',
+    id: parsed.data.id,
+    result: { content: [{ type: 'text', text: JSON.stringify(buildDecisionResponse(decisionInput.data)) }] }
   });
 });
 

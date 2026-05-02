@@ -14,6 +14,13 @@ const baseMainnetTokens: Record<StablecoinSymbol, TokenConfig> = {
   USDT: { symbol: 'USDT', address: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2', decimals: 6 }
 };
 
+const jsonRpcSchema = z.object({
+  jsonrpc: z.string().optional(),
+  id: z.unknown().optional(),
+  method: z.string().min(1),
+  params: z.record(z.unknown()).optional().default({})
+});
+
 const quoteSchema = z.object({
   workflowId: z.string().min(1).max(120).optional(),
   merchantWallet: z.string().refine(isAddress, 'Invalid merchant wallet'),
@@ -341,25 +348,23 @@ app.get('/healthz', async () => ({
     v4Quoter: v4QuoterAddress(),
     keeperHubConfigured,
     executorConfigured
+  },
+  mcp: {
+    service: 'counteragent-execution',
+    tools: ['get_quote', 'execute_swap']
   }
 }));
 
-app.post('/execution/quote', async (request, reply) => {
-  const parsed = quoteSchema.safeParse(request.body);
-
-  if (!parsed.success) {
-    return reply.code(400).send({ ok: false, error: 'invalid_request', details: parsed.error.flatten() });
-  }
-
-  const quote = await buildQuote(parsed.data);
+async function buildQuoteResponse(input: z.infer<typeof quoteSchema>) {
+  const quote = await buildQuote(input);
   pushRecentSwap({
     agent: 'A3',
     type: 'quote',
-    workflowId: parsed.data.workflowId,
-    merchant: parsed.data.merchantWallet,
-    fromToken: parsed.data.fromToken,
-    toToken: parsed.data.toToken,
-    amount: parsed.data.amount,
+    workflowId: input.workflowId,
+    merchant: input.merchantWallet,
+    fromToken: input.fromToken,
+    toToken: input.toToken,
+    amount: input.amount,
     rate: quote.rate,
     status: quote.provider === 'uniswap-trading-api' ? 'quoted' : 'fallback-quote',
     quoteId: quote.quoteId,
@@ -368,7 +373,85 @@ app.post('/execution/quote', async (request, reply) => {
     fallbackReason: quote.fallbackReason,
     timestamp: new Date().toISOString()
   });
-  return reply.send({ ok: true, workflowId: parsed.data.workflowId, quote });
+  return { ok: true, workflowId: input.workflowId, quote };
+}
+
+async function buildExecuteResponse(input: z.infer<typeof executeSchema>) {
+  if (input.decision.action !== 'CONVERT') {
+    pushRecentSwap({
+      agent: 'A3',
+      type: 'execution',
+      workflowId: input.workflowId,
+      merchant: input.merchantWallet,
+      fromToken: input.fromToken,
+      toToken: input.toToken,
+      amount: input.amount,
+      status: 'skipped',
+      txHash: null,
+      timestamp: new Date().toISOString()
+    });
+    return {
+      ok: true,
+      workflowId: input.workflowId,
+      status: 'skipped',
+      reason: 'decision_was_hold',
+      transactionHash: null
+    };
+  }
+
+  const quote = await buildQuote(input);
+
+  if (executionMode === 'dry-run' || quote.provider !== 'uniswap-trading-api') {
+    const executionId = input.idempotencyKey ?? randomUUID();
+    pushRecentSwap({
+      agent: 'A3',
+      type: 'execution',
+      workflowId: input.workflowId,
+      merchant: input.merchantWallet,
+      fromToken: input.fromToken,
+      toToken: input.toToken,
+      amount: input.amount,
+      rate: quote.rate,
+      status: quote.provider === 'uniswap-trading-api' ? 'dry-run' : 'fallback-dry-run',
+      quoteId: quote.quoteId,
+      txHash: null,
+      estimatedAmountOut: quote.estimatedAmountOut,
+      provider: quote.provider,
+      fallbackReason: quote.fallbackReason,
+      timestamp: new Date().toISOString()
+    });
+    return {
+      ok: true,
+      workflowId: input.workflowId,
+      status: quote.provider === 'uniswap-trading-api' ? 'dry-run' : 'fallback-dry-run',
+      executionId,
+      quote,
+      transactionHash: null,
+      message: quote.provider === 'uniswap-trading-api'
+        ? 'Uniswap Trading API quote obtained; dry-run mode did not submit a transaction.'
+        : 'Uniswap Trading API was unavailable for this route/chain; fallback quote used and no transaction was submitted.'
+    };
+  }
+
+  if (!executorConfigured) {
+    return { ok: false, error: 'executor_not_configured' };
+  }
+
+  return {
+    ok: false,
+    error: 'server_side_live_execution_not_enabled',
+    message: 'Use /execution/swap to build Uniswap Trading API transaction calldata for browser wallet signing; server-side custody remains intentionally disabled.'
+  };
+}
+
+app.post('/execution/quote', async (request, reply) => {
+  const parsed = quoteSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    return reply.code(400).send({ ok: false, error: 'invalid_request', details: parsed.error.flatten() });
+  }
+
+  return reply.send(await buildQuoteResponse(parsed.data));
 });
 
 app.post('/execution/swap', async (request, reply) => {
@@ -413,70 +496,55 @@ app.post('/execution/execute', async (request, reply) => {
     return reply.code(400).send({ ok: false, error: 'invalid_request', details: parsed.error.flatten() });
   }
 
-  if (parsed.data.decision.action !== 'CONVERT') {
-    pushRecentSwap({
-      agent: 'A3',
-      type: 'execution',
-      workflowId: parsed.data.workflowId,
-      merchant: parsed.data.merchantWallet,
-      fromToken: parsed.data.fromToken,
-      toToken: parsed.data.toToken,
-      amount: parsed.data.amount,
-      status: 'skipped',
-      txHash: null,
-      timestamp: new Date().toISOString()
-    });
+  const result = await buildExecuteResponse(parsed.data);
+  if (result.ok === false && result.error === 'executor_not_configured') return reply.code(409).send(result);
+  if (result.ok === false) return reply.code(501).send(result);
+  return reply.send(result);
+});
+
+app.post('/mcp', async (request, reply) => {
+  const parsed = jsonRpcSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.code(400).send({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'invalid_request' } });
+  }
+
+  if (parsed.data.method === 'tools/list') {
     return reply.send({
-      ok: true,
-      workflowId: parsed.data.workflowId,
-      status: 'skipped',
-      reason: 'decision_was_hold',
-      transactionHash: null
+      jsonrpc: '2.0',
+      id: parsed.data.id,
+      result: {
+        tools: [
+          { name: 'get_quote', description: 'Get a treasury swap quote.' },
+          { name: 'execute_swap', description: 'Execute or dry-run a treasury swap decision.' }
+        ]
+      }
     });
   }
 
-  const quote = await buildQuote(parsed.data);
-
-  if (executionMode === 'dry-run' || quote.provider !== 'uniswap-trading-api') {
-    const executionId = parsed.data.idempotencyKey ?? randomUUID();
-    pushRecentSwap({
-      agent: 'A3',
-      type: 'execution',
-      workflowId: parsed.data.workflowId,
-      merchant: parsed.data.merchantWallet,
-      fromToken: parsed.data.fromToken,
-      toToken: parsed.data.toToken,
-      amount: parsed.data.amount,
-      rate: quote.rate,
-      status: quote.provider === 'uniswap-trading-api' ? 'dry-run' : 'fallback-dry-run',
-      quoteId: quote.quoteId,
-      txHash: null,
-      estimatedAmountOut: quote.estimatedAmountOut,
-      provider: quote.provider,
-      fallbackReason: quote.fallbackReason,
-      timestamp: new Date().toISOString()
-    });
-    return reply.send({
-      ok: true,
-      workflowId: parsed.data.workflowId,
-      status: quote.provider === 'uniswap-trading-api' ? 'dry-run' : 'fallback-dry-run',
-      executionId,
-      quote,
-      transactionHash: null,
-      message: quote.provider === 'uniswap-trading-api'
-        ? 'Uniswap Trading API quote obtained; dry-run mode did not submit a transaction.'
-        : 'Uniswap Trading API was unavailable for this route/chain; fallback quote used and no transaction was submitted.'
-    });
+  if (parsed.data.method !== 'tools/call') {
+    return reply.send({ jsonrpc: '2.0', id: parsed.data.id, error: { code: -32601, message: 'method_not_found' } });
   }
 
-  if (!executorConfigured) {
-    return reply.code(409).send({ ok: false, error: 'executor_not_configured' });
+  const name = typeof parsed.data.params.name === 'string' ? parsed.data.params.name : '';
+  const args = parsed.data.params.arguments ?? {};
+  const schema = name === 'get_quote' ? quoteSchema : name === 'execute_swap' ? executeSchema : null;
+  if (!schema) {
+    return reply.send({ jsonrpc: '2.0', id: parsed.data.id, error: { code: -32601, message: 'tool_not_found' } });
   }
 
-  return reply.code(501).send({
-    ok: false,
-    error: 'server_side_live_execution_not_enabled',
-    message: 'Use /execution/swap to build Uniswap Trading API transaction calldata for browser wallet signing; server-side custody remains intentionally disabled.'
+  const toolInput = schema.safeParse(args);
+  if (!toolInput.success) {
+    return reply.send({ jsonrpc: '2.0', id: parsed.data.id, error: { code: -32602, message: 'invalid_tool_arguments' } });
+  }
+
+  const result = name === 'get_quote'
+    ? await buildQuoteResponse(toolInput.data as z.infer<typeof quoteSchema>)
+    : await buildExecuteResponse(toolInput.data as z.infer<typeof executeSchema>);
+
+  return reply.send({
+    jsonrpc: '2.0',
+    id: parsed.data.id,
+    result: { content: [{ type: 'text', text: JSON.stringify(result) }] }
   });
 });
 

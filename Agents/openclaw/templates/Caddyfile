@@ -10,6 +10,17 @@
 
 counteragent.perkos.xyz {
   import counteragent_headers
+  @axl_status path /axl/status
+  handle @axl_status {
+    reverse_proxy orchestrator-plugin:8787
+  }
+
+  @axl path /axl/*
+  handle @axl {
+    uri strip_prefix /axl
+    reverse_proxy axl-a0-transport:8890
+  }
+
   @orchestrator_api path /session/* /onboarding/* /workflow/* /vault/* /ens/* /dashboard/*
   handle @orchestrator_api {
     reverse_proxy orchestrator-plugin:8787
@@ -22,6 +33,17 @@ counteragent.perkos.xyz {
 
 orchestrator.counteragent.perkos.xyz {
   import counteragent_headers
+  @axl_status path /axl/status
+  handle @axl_status {
+    reverse_proxy orchestrator-plugin:8787
+  }
+
+  @axl path /axl/*
+  handle @axl {
+    uri strip_prefix /axl
+    reverse_proxy axl-a0-transport:8890
+  }
+
   @orchestrator_api path /session/* /onboarding/* /workflow/* /vault/* /ens/* /dashboard/*
   handle @orchestrator_api {
     reverse_proxy orchestrator-plugin:8787
@@ -34,20 +56,44 @@ orchestrator.counteragent.perkos.xyz {
 
 monitor.counteragent.perkos.xyz {
   import counteragent_headers
+  @axl path /axl/*
+  handle @axl {
+    uri strip_prefix /axl
+    reverse_proxy axl-a1-transport:8891
+  }
+
   reverse_proxy ens-merchant-config-plugin:8788
 }
 
 decision.counteragent.perkos.xyz {
   import counteragent_headers
+  @axl path /axl/*
+  handle @axl {
+    uri strip_prefix /axl
+    reverse_proxy axl-a2-transport:8892
+  }
+
   reverse_proxy decision-scoring-plugin:8790
 }
 
 execution.counteragent.perkos.xyz {
   import counteragent_headers
+  @axl path /axl/*
+  handle @axl {
+    uri strip_prefix /axl
+    reverse_proxy axl-a3-transport:8893
+  }
+
   reverse_proxy uniswap-swap-plugin:8791
 }
 
 reporting.counteragent.perkos.xyz {
   import counteragent_headers
+  @axl path /axl/*
+  handle @axl {
+    uri strip_prefix /axl
+    reverse_proxy axl-a4-transport:8894
+  }
+
   reverse_proxy reporting-plugin:8789
 }

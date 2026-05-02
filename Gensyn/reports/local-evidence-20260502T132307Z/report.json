@@ -1,0 +1,22 @@
+{
+  "runId": "local-evidence-20260502T132307Z",
+  "createdAt": "2026-05-02T13:23:10Z",
+  "mode": "local-shared-plugin",
+  "claimLevel": "shared plugin local transport verified; real Gensyn AXL P2P requires separate real nodes",
+  "tests": {
+    "sharedPluginLocal": {
+      "exitCode": 0,
+      "workflowId": "shared-plugin-local-1777728189",
+      "evidence": ["A2 received message", "A3 received message"]
+    },
+    "sharedPluginWorkflow": {
+      "exitCode": 0,
+      "workflowId": "shared-plugin-workflow-1777728189",
+      "evidence": ["workflow ok", "transport sent trace ok", "A2 transport inbox ok", "A3 transport inbox ok"]
+    }
+  },
+  "logs": {
+    "sharedPluginLocal": "shared-plugin-local-logs/",
+    "sharedPluginWorkflow": "shared-plugin-workflow-logs/"
+  }
+}
