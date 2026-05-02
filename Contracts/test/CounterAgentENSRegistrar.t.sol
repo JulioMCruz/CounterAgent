@@ -47,7 +47,7 @@ contract MockPublicResolver {
 }
 
 contract CounterAgentENSRegistrarTest is Test {
-    bytes32 internal constant PARENT_NODE = keccak256("counteragent.eth");
+    bytes32 internal constant PARENT_NODE = keccak256("counteragents.eth");
 
     MockENSRegistry internal registry;
     MockPublicResolver internal resolver;
@@ -63,7 +63,7 @@ contract CounterAgentENSRegistrarTest is Test {
         CounterAgentENSRegistrar impl = new CounterAgentENSRegistrar();
         bytes memory initData = abi.encodeCall(
             CounterAgentENSRegistrar.initialize,
-            (owner, address(registry), address(resolver), PARENT_NODE, "counteragent.eth")
+            (owner, address(registry), address(resolver), PARENT_NODE, "counteragents.eth")
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
         registrar = CounterAgentENSRegistrar(address(proxy));

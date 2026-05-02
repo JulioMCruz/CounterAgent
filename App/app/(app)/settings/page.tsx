@@ -1090,7 +1090,7 @@ export default function SettingsPage() {
                 </div>
                 {ensDraft.subnames.length === 0 ? (
                   <div className="rounded-lg bg-secondary px-3 py-2 text-xs text-muted-foreground">
-                    No subnames yet. Add examples like monitor.counteragent.eth or reporting.counteragent.eth.
+                    No subnames yet. Add examples like monitor.counteragents.eth or reporting.counteragents.eth.
                   </div>
                 ) : null}
                 {ensDraft.subnames.map((subname, index) => (
@@ -1098,7 +1098,7 @@ export default function SettingsPage() {
                     <Input
                       value={subname}
                       onChange={(event) => updateSubname(index, event.target.value)}
-                      placeholder="monitor.merchant.counteragent.eth"
+                      placeholder="monitor.merchant.counteragents.eth"
                       disabled={isEnsSaving}
                     />
                     <Button type="button" variant="outline" size="icon" onClick={() => removeSubname(index)} disabled={isEnsSaving}>
