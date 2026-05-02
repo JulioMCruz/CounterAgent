@@ -51,7 +51,7 @@ curl -X POST http://localhost:8788/ens/provision \
 ## Read config
 
 ```bash
-curl http://localhost:8788/ens/config/merchant-demo.counteragent.eth
+curl http://localhost:8788/ens/config/merchant-demo.counteragents.eth
 ```
 
 ## Runtime model

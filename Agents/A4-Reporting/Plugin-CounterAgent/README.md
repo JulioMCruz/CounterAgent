@@ -62,7 +62,7 @@ The plugin returns both a local SHA-256 content hash of the canonical report and
 curl -X POST http://localhost:8789/reports/publish \
   -H 'content-type: application/json' \
   -d '{
-    "merchantEns": "demo.counteragent.eth",
+    "merchantEns": "demo.counteragents.eth",
     "merchantWallet": "0x0000000000000000000000000000000000000001",
     "decision": "convert",
     "summary": "Converted incoming USDC treasury balance according to merchant policy.",

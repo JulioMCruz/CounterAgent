@@ -35,7 +35,7 @@ curl -X POST http://localhost:8790/decision/evaluate \
   -H 'content-type: application/json' \
   -d '{
     "workflowId": "demo-001",
-    "merchantEns": "demo.counteragent.eth",
+    "merchantEns": "demo.counteragents.eth",
     "merchantWallet": "0x0000000000000000000000000000000000000001",
     "fromToken": "EURC",
     "toToken": "USDC",

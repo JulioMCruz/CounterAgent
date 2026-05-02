@@ -2,11 +2,19 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MerchantRegistry} from "../src/MerchantRegistry.sol";
+
+contract MerchantRegistryV2 is MerchantRegistry {
+    function version() external pure returns (uint256) {
+        return 2;
+    }
+}
 
 contract MerchantRegistryTest is Test {
     MerchantRegistry internal registry;
 
+    address internal admin = makeAddr("admin");
     address internal merchantA = makeAddr("merchantA");
     address internal merchantB = makeAddr("merchantB");
     uint256 internal merchantCKey = 0xA11CE;
@@ -18,7 +26,9 @@ contract MerchantRegistryTest is Test {
     bytes32 internal chatB = keccak256("merchant-b-chat");
 
     function setUp() public {
-        registry = new MerchantRegistry();
+        MerchantRegistry implementation = new MerchantRegistry();
+        bytes memory initData = abi.encodeCall(MerchantRegistry.initialize, (admin));
+        registry = MerchantRegistry(address(new ERC1967Proxy(address(implementation), initData)));
         merchantC = vm.addr(merchantCKey);
     }
 
@@ -172,6 +182,15 @@ contract MerchantRegistryTest is Test {
         assertEq(registry.configOf(merchantB).fxThresholdBps, 200);
         assertEq(registry.configOf(merchantA).preferredStablecoin, usdc);
         assertEq(registry.configOf(merchantB).preferredStablecoin, eurc);
+    }
+
+    function test_ownerCanUpgradeRegistryImplementation() public {
+        MerchantRegistryV2 v2 = new MerchantRegistryV2();
+
+        vm.prank(admin);
+        registry.upgradeToAndCall(address(v2), "");
+
+        assertEq(MerchantRegistryV2(address(registry)).version(), 2);
     }
 
     function testFuzz_register_acceptsValidThreshold(uint16 bps) public {

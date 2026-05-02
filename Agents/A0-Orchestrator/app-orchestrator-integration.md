@@ -48,7 +48,7 @@ Request body:
   "walletAddress": "0x...",
   "chainId": 8453,
   "merchantName": "Example Merchant",
-  "ensName": "merchant.counteragent.eth",
+  "ensName": "merchant.counteragents.eth",
   "telegramChat": "optional",
   "registryTxHash": "optional",
   "callbackUrl": "optional"

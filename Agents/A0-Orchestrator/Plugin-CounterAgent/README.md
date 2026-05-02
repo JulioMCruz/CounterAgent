@@ -130,7 +130,7 @@ Example request:
 {
   "walletAddress": "0x0000000000000000000000000000000000000001",
   "chainId": 8453,
-  "merchantEns": "demo.counteragent.eth",
+  "merchantEns": "demo.counteragents.eth",
   "fromToken": "EURC",
   "toToken": "USDC",
   "amount": "800",

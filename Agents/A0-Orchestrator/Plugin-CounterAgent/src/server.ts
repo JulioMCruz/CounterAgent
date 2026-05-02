@@ -12,7 +12,7 @@ import {
   type Hex
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { base, baseSepolia } from 'viem/chains';
+import { base, baseSepolia, celo, celoSepolia } from 'viem/chains';
 import { z } from 'zod';
 
 const merchantRegistryAbi = [
@@ -92,6 +92,20 @@ const onboardingPrepareSchema = z.object({
   telegramChat: z.string().max(120).optional()
 });
 
+const baseStablecoinSchema = z.enum(['USDC', 'EURC', 'USDT']);
+const celoStablecoinSchema = z.enum(['cUSD', 'cEUR', 'cREAL', 'cKES', 'cCOP', 'cGHS']);
+const stablecoinSchema = z.union([baseStablecoinSchema, celoStablecoinSchema]);
+const tokenSchema = baseStablecoinSchema;
+
+const vaultPlanSchema = z.object({
+  walletAddress: z.string().refine(isAddress, 'Invalid wallet address'),
+  chainId: z.number().int().positive().optional(),
+  preferredStablecoin: stablecoinSchema.optional(),
+  mode: z.enum(['conservative', 'moderate', 'active']).default('moderate'),
+  authorizedAgent: z.string().refine(isAddress, 'Invalid agent address').optional(),
+  targetAllowlist: z.array(z.string().refine(isAddress, 'Invalid target address')).max(5).optional()
+});
+
 const ensProfileRecordSchema = z.object({
   merchantImage: z.string().url().max(500).optional().or(z.literal('')),
   header: z.string().url().max(500).optional().or(z.literal('')),
@@ -111,7 +125,6 @@ const ensProfileRecordSchema = z.object({
   subnames: z.array(z.string().min(1).max(255)).max(25).optional().default([])
 });
 
-const tokenSchema = z.enum(['USDC', 'EURC', 'USDT']);
 const riskSchema = z.enum(['conservative', 'moderate', 'aggressive']).or(
   z.enum(['Conservative', 'Moderate', 'Aggressive']).transform((value) => value.toLowerCase() as 'conservative' | 'moderate' | 'aggressive')
 );
@@ -146,14 +159,58 @@ const monitorAgentUrl = process.env.MONITOR_AGENT_URL;
 const reportingAgentUrl = process.env.REPORTING_AGENT_URL;
 const decisionAgentUrl = process.env.DECISION_AGENT_URL;
 const executionAgentUrl = process.env.EXECUTION_AGENT_URL;
+const executionAgentAddress = process.env.EXECUTION_AGENT_ADDRESS as Address | undefined;
 const axlMessagingUrl = process.env.GENSYN_AXL_MESSAGING_URL;
-const ensParentName = process.env.ENS_PARENT_NAME ?? 'counteragent.eth';
+const ensParentName = process.env.ENS_PARENT_NAME ?? 'counteragents.eth';
 
-const stablecoinAddresses: Record<string, Address> = {
-  USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-  EURC: '0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42',
-  USDT: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2'
+const stablecoinAddressesByChain: Record<number, Record<string, Address>> = {
+  [base.id]: {
+    USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    EURC: '0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42',
+    USDT: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2'
+  },
+  [baseSepolia.id]: {
+    USDC: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+    EURC: '0x808456652fdb597867f38412077A9182bf77359F',
+    USDT: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2'
+  },
+  [celo.id]: {
+    cUSD: '0x765DE816845861e75A25fCA122bb6898B8B1282a',
+    cEUR: '0xD8763CBa276a3738E6DE85b4b3bF5FDed6D6cA73',
+    cREAL: '0xe8537a3d056DA446677B9E9d6c5dB704EaAb4787',
+    cKES: '0x456a3D042C0DbD3db53D5489e98dFb038553B0d0',
+    cCOP: '0x8A567e2aE79CA692Bd748aB832081C45de4041eA',
+    cGHS: '0xfAeA5F3404bbA20D3cc2f8C4B0A888F55a3c7313'
+  },
+  [celoSepolia.id]: {
+    cUSD: '0xdE9e4C3ce781b4bA68120d6261cbad65ce0aB00b',
+    cEUR: '0xA99dC247d6b7B2E3ab48a1fEE101b83cD6aCd82a',
+    cREAL: '0x2294298942fdc79417DE9E0D740A4957E0e7783a',
+    cKES: '0xC7e4635651E3e3Af82b61d3E23c159438daE3BbF',
+    cCOP: '0x5F8d55c3627d2dc0a2B4afa798f877242F382F67',
+    cGHS: '0x5e94B8C872bD47BC4255E60ECBF44D5E66e7401C'
+  }
 };
+
+const stablecoinAddresses = stablecoinAddressesByChain[base.id];
+
+function defaultStablecoinForChain(chainId: number) {
+  return chainId === celo.id || chainId === celoSepolia.id ? 'cUSD' : 'USDC';
+}
+
+function stablecoinsForChain(chainId: number) {
+  return stablecoinAddressesByChain[chainId] ?? stablecoinAddressesByChain[base.id];
+}
+
+function stablecoinAddressFor(chainId: number, symbol: string) {
+  return stablecoinsForChain(chainId)[symbol];
+}
+
+const vaultModePolicies = {
+  conservative: { maxTradeAmount: '250000000', dailyLimit: '1000000000', maxSlippageBps: 25 },
+  moderate: { maxTradeAmount: '1000000000', dailyLimit: '5000000000', maxSlippageBps: 50 },
+  active: { maxTradeAmount: '2500000000', dailyLimit: '10000000000', maxSlippageBps: 75 }
+} as const;
 
 const riskValueFor = (risk?: string) => {
   const normalized = (risk ?? 'moderate').toLowerCase();
@@ -179,6 +236,8 @@ await app.register(multipart, {
 const chainFor = (chainId: number) => {
   if (chainId === base.id) return base;
   if (chainId === baseSepolia.id) return baseSepolia;
+  if (chainId === celo.id) return celo;
+  if (chainId === celoSepolia.id) return celoSepolia;
   return defaultChainId === base.id ? base : baseSepolia;
 };
 
@@ -210,7 +269,7 @@ async function relayDelegatedRegistration(input: {
   }
 
   const stablecoinSymbol = input.preferredStablecoin ?? 'USDC';
-  const preferredStablecoin = stablecoinAddresses[stablecoinSymbol];
+  const preferredStablecoin = stablecoinAddressFor(input.chainId, stablecoinSymbol);
   if (!preferredStablecoin) throw new Error('unsupported_stablecoin');
 
   const fxThresholdBps = input.fxThresholdBps ?? 50;
@@ -799,7 +858,7 @@ app.post('/onboarding/prepare', async (request, reply) => {
   }
 
   const input = parsed.data;
-  const stablecoin = stablecoinAddresses[input.preferredStablecoin];
+  const stablecoin = stablecoinAddressFor(input.chainId, input.preferredStablecoin);
   if (!stablecoin) return reply.code(400).send({ ok: false, error: 'unsupported_stablecoin' });
 
   try {
@@ -855,6 +914,95 @@ app.post('/onboarding/prepare', async (request, reply) => {
     request.log.error({ error }, 'onboarding prepare failed');
     return reply.code(502).send({ ok: false, error: 'registration_prepare_failed' });
   }
+});
+
+app.post('/vault/plan', async (request, reply) => {
+  const parsed = vaultPlanSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    return reply.code(400).send({
+      ok: false,
+      error: 'invalid_request',
+      details: parsed.error.flatten()
+    });
+  }
+
+  const input = parsed.data;
+  const chainId = input.chainId ?? defaultChainId;
+  const chain = chainFor(chainId);
+  const preferredSymbol = input.preferredStablecoin ?? defaultStablecoinForChain(chain.id);
+  const stablecoin = stablecoinAddressFor(chain.id, preferredSymbol);
+  if (!stablecoin) {
+    return reply.code(400).send({ ok: false, error: 'unsupported_stablecoin_for_chain', chainId: chain.id, preferredStablecoin: preferredSymbol });
+  }
+  const tokenAllowlist = Object.entries(stablecoinsForChain(chain.id)).map(([symbol, address]) => ({ symbol, address }));
+  const now = Math.floor(Date.now() / 1000);
+  const expiresAt = now + 7 * 24 * 60 * 60;
+  const policy = vaultModePolicies[input.mode];
+  const targetAllowlist = input.targetAllowlist ?? [];
+  const authorizedAgent = input.authorizedAgent ?? (executionAgentAddress && isAddress(executionAgentAddress) ? executionAgentAddress : undefined);
+
+  return reply.send({
+    ok: true,
+    status: 'draft',
+    custodyModel: 'merchant-owned-non-custodial',
+    chainId: chain.id,
+    vault: {
+      deployedAddressRequired: false,
+      owner: input.walletAddress,
+      authorizedAgent: authorizedAgent ?? null,
+      authorizedAgentRole: 'A3-Uniswap-SwapExecution',
+      tokenAllowlist,
+      targetAllowlist,
+      preferredStablecoin: {
+        symbol: preferredSymbol,
+        address: stablecoin
+      },
+      policy: {
+        mode: input.mode,
+        maxTradeAmount: policy.maxTradeAmount,
+        dailyLimit: policy.dailyLimit,
+        maxSlippageBps: policy.maxSlippageBps,
+        expiresAt,
+        active: true
+      }
+    },
+    intent: {
+      domain: {
+        name: 'CounterAgent Autopilot Vault',
+        version: '1',
+        chainId: chain.id
+      },
+      types: {
+        VaultPolicy: [
+          { name: 'owner', type: 'address' },
+          { name: 'authorizedAgent', type: 'address' },
+          { name: 'preferredStablecoin', type: 'address' },
+          { name: 'maxTradeAmount', type: 'uint256' },
+          { name: 'dailyLimit', type: 'uint256' },
+          { name: 'maxSlippageBps', type: 'uint16' },
+          { name: 'expiresAt', type: 'uint64' },
+          { name: 'targetAllowlistHash', type: 'bytes32' }
+        ]
+      },
+      primaryType: 'VaultPolicy',
+      message: {
+        owner: input.walletAddress,
+        authorizedAgent: authorizedAgent ?? '0x0000000000000000000000000000000000000000',
+        preferredStablecoin: stablecoin,
+        maxTradeAmount: policy.maxTradeAmount,
+        dailyLimit: policy.dailyLimit,
+        maxSlippageBps: policy.maxSlippageBps,
+        expiresAt,
+        targetAllowlistHash: keccak256(toBytes(targetAllowlist.join(',')))
+      }
+    },
+    notes: [
+      'A0 prepares policy intent only; it does not receive keys or custody funds.',
+      'A3 is the intended authorized executor for no-human-in-the-loop swaps.',
+      'The merchant owns the vault, signs bounded permissions, and can revoke or withdraw directly.'
+    ]
+  });
 });
 
 

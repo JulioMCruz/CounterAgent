@@ -25,7 +25,7 @@ This is the right place for values that affect treasury execution because Base i
 
 ## ENS: public identity and discovery mirror
 
-`<merchant>.counteragent.eth` stores public, agent-readable metadata:
+`<merchant>.counteragents.eth` stores public, agent-readable metadata:
 
 - merchant wallet
 - FX threshold in basis points

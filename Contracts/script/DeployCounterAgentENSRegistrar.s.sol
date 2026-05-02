@@ -8,11 +8,11 @@ import {CounterAgentENSRegistrar} from "../src/CounterAgentENSRegistrar.sol";
 contract DeployCounterAgentENSRegistrar is Script {
     address internal constant SEPOLIA_ENS_REGISTRY = 0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e;
     address internal constant SEPOLIA_PUBLIC_RESOLVER = 0xE99638b40E4Fff0129D56f03b55b6bbC4BBE49b5;
-    bytes32 internal constant COUNTERAGENT_ETH_NODE =
-        0x81b4205485f00fa5bd59de49b1c175696067841b080c650d6af3dce4ef8bf4ff;
+    bytes32 internal constant COUNTERAGENTS_ETH_NODE =
+        0x371a677a96f5e54f81471695fd60e39dbb6267b768e5254b32a5d9eaf86e6765;
 
     function run() external returns (CounterAgentENSRegistrar registrar, address implementation) {
-        uint256 deployerPrivateKey = vm.envUint("ERC8004_OPERATOR_PRIVATE_KEY");
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address owner = vm.addr(deployerPrivateKey);
 
         vm.startBroadcast(deployerPrivateKey);
@@ -20,7 +20,7 @@ contract DeployCounterAgentENSRegistrar is Script {
         CounterAgentENSRegistrar impl = new CounterAgentENSRegistrar();
         bytes memory initData = abi.encodeCall(
             CounterAgentENSRegistrar.initialize,
-            (owner, SEPOLIA_ENS_REGISTRY, SEPOLIA_PUBLIC_RESOLVER, COUNTERAGENT_ETH_NODE, "counteragent.eth")
+            (owner, SEPOLIA_ENS_REGISTRY, SEPOLIA_PUBLIC_RESOLVER, COUNTERAGENTS_ETH_NODE, "counteragents.eth")
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
 
@@ -32,6 +32,7 @@ contract DeployCounterAgentENSRegistrar is Script {
         console.log("CounterAgentENSRegistrar proxy:", address(registrar));
         console.log("CounterAgentENSRegistrar implementation:", implementation);
         console.log("Owner:", owner);
+        console.log("Parent ENS:", "counteragents.eth");
         console.log("Chain id:", block.chainid);
     }
 }

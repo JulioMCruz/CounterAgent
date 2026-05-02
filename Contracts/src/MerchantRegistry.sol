@@ -1,15 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+
 /// @title MerchantRegistry
-/// @notice On-chain merchant treasury config for CounterAgent. Acts as a fallback / mirror
+/// @notice Upgradeable on-chain merchant treasury config for CounterAgent. Acts as a fallback / mirror
 ///         to the canonical ENS text-record store described in the project docs.
-/// @dev Each merchant address self-registers a single Config struct; only the merchant
-///      can update or deactivate their own entry. No admin, no upgrade path.
-contract MerchantRegistry {
+/// @dev Each merchant address self-registers a single Config struct; only the merchant can update/deactivate it.
+contract MerchantRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     bytes32 public constant REGISTER_TYPEHASH = keccak256(
         "Register(address merchant,uint16 fxThresholdBps,uint8 risk,address preferredStablecoin,bytes32 telegramChatId,uint256 nonce,uint256 deadline)"
     );
+    bytes32 private constant EIP712_DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    bytes32 private constant NAME_HASH = keccak256(bytes("CounterAgent MerchantRegistry"));
+    bytes32 private constant VERSION_HASH = keccak256(bytes("1"));
 
     enum RiskTolerance {
         Conservative,
@@ -28,8 +35,6 @@ contract MerchantRegistry {
     mapping(address => Config) private _configs;
     mapping(address => uint256) public nonces;
 
-    bytes32 public immutable DOMAIN_SEPARATOR;
-
     event MerchantRegistered(
         address indexed merchant, uint16 fxThresholdBps, RiskTolerance risk, address preferredStablecoin
     );
@@ -45,24 +50,24 @@ contract MerchantRegistry {
     error ExpiredSignature();
     error InvalidSignature();
 
+    /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
-        DOMAIN_SEPARATOR = keccak256(
-            abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-                keccak256(bytes("CounterAgent MerchantRegistry")),
-                keccak256(bytes("1")),
-                block.chainid,
-                address(this)
-            )
-        );
+        _disableInitializers();
     }
 
-    function register(
-        uint16 fxThresholdBps,
-        RiskTolerance risk,
-        address preferredStablecoin,
-        bytes32 telegramChatId
-    ) external {
+    function initialize(address initialOwner) external initializer {
+        if (initialOwner == address(0)) revert ZeroAddress();
+        __Ownable_init(initialOwner);
+        __UUPSUpgradeable_init();
+    }
+
+    function DOMAIN_SEPARATOR() public view returns (bytes32) {
+        return keccak256(abi.encode(EIP712_DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, block.chainid, address(this)));
+    }
+
+    function register(uint16 fxThresholdBps, RiskTolerance risk, address preferredStablecoin, bytes32 telegramChatId)
+        external
+    {
         _registerFor(msg.sender, fxThresholdBps, risk, preferredStablecoin, telegramChatId);
     }
 
@@ -92,7 +97,7 @@ contract MerchantRegistry {
                 deadline
             )
         );
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(), structHash));
         address signer = _recover(digest, signature);
         if (signer != merchant) revert InvalidSignature();
 
@@ -141,12 +146,9 @@ contract MerchantRegistry {
         if (signer == address(0)) revert InvalidSignature();
     }
 
-    function update(
-        uint16 fxThresholdBps,
-        RiskTolerance risk,
-        address preferredStablecoin,
-        bytes32 telegramChatId
-    ) external {
+    function update(uint16 fxThresholdBps, RiskTolerance risk, address preferredStablecoin, bytes32 telegramChatId)
+        external
+    {
         Config storage c = _configs[msg.sender];
         if (!c.active) revert NotRegistered();
         if (fxThresholdBps == 0 || fxThresholdBps > 10_000) revert InvalidThreshold();
@@ -173,4 +175,6 @@ contract MerchantRegistry {
     function isActive(address merchant) external view returns (bool) {
         return _configs[merchant].active;
     }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

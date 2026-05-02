@@ -21,6 +21,7 @@ number_underscore = "thousands"
 [rpc_endpoints]
 base = "${BASE_RPC_URL}"
 base_sepolia = "${BASE_SEPOLIA_RPC_URL}"
+celo_sepolia = "${CELO_SEPOLIA_RPC_URL}"
 
 [etherscan]
 base = { key = "${BASESCAN_API_KEY}", url = "https://api.basescan.org/api", chain = 8453 }
