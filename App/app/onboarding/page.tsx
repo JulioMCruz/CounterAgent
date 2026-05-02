@@ -4,12 +4,13 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { DynamicWidget } from "@dynamic-labs/sdk-react-core"
-import { Zap, ArrowLeft, Loader2, Bell, Coins, FileText, Globe2, Network, ShieldCheck, TrendingUp } from "lucide-react"
+import { Zap, ArrowLeft, Loader2, Bell, Coins, FileText, Globe2, Network, ShieldCheck, TrendingUp, Pause, ArrowRightLeft, AlertTriangle, CalendarDays, Link2 } from "lucide-react"
 import { useAccount, useChainId, useSignTypedData, useSwitchChain } from "wagmi"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Slider } from "@/components/ui/slider"
+import { AgentInteractionFlow } from "@/components/agent-interaction-flow"
 import { SessionHeaderActions } from "@/components/session-header-actions"
 import { prepareOnboarding, startOnboarding, type OnboardingPrepareResponse } from "@/lib/a0"
 import {
@@ -100,6 +101,16 @@ export default function OnboardingPage() {
   const [preparedRegistration, setPreparedRegistration] = useState<OnboardingPrepareResponse | null>(null)
 
   const connectedToTargetChain = chainId === activeChain.id
+  const onboardingFlowPhase = error
+    ? "error"
+    : isActivating || isSigning
+      ? "mining"
+      : preparedRegistration
+        ? "confirming"
+        : statusText
+          ? "preparing"
+          : "idle"
+
 
   async function handleSwitchNetwork() {
     setError(null)
@@ -304,6 +315,41 @@ export default function OnboardingPage() {
           })}
         </div>
 
+        <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+          <AgentInteractionFlow
+            mode="treasury-config-update"
+            phase={onboardingFlowPhase}
+            heightClassName="h-[310px]"
+          />
+
+          <Card>
+            <CardContent className="px-4 py-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Current onboarding variables</p>
+              <h2 className="mt-1 text-lg font-black text-foreground">Compare config before activation</h2>
+              <div className="mt-4 grid gap-2">
+                {[
+                  ["ENS", merchantSlug ? `${merchantSlug}.${ensParent}` : `pending.${ensParent}`],
+                  ["Network", `${activeChain.name} · ${activeChain.id}`],
+                  ["Token", preferredCoin],
+                  ["Guardrails", `${riskTolerance} risk`],
+                  ["FX Rate", `${threshold[0].toFixed(1)}% trigger`],
+                  ["Telegram", telegramChat || "not connected"],
+                  ["Alerts", "Telegram · anomaly · weekly"],
+                  ["Integrations", "Uniswap v4 · ENS · OG"],
+                ].map(([label, value]) => (
+                  <div key={label} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-secondary/50 px-3 py-2">
+                    <span className="text-xs font-semibold text-muted-foreground">{label}</span>
+                    <span className="truncate text-right font-mono text-xs font-bold text-foreground">{value}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                The animation stays visible so the new fields can be reviewed against the same agent workflow used by the dashboard.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
         {!address && (
           <Card className="border-primary/30 bg-primary/5">
             <CardContent className="flex flex-col gap-3 px-4 py-4">
@@ -411,6 +457,46 @@ export default function OnboardingPage() {
                 onChange={(e) => { setPreparedRegistration(null); setTelegramChat(e.target.value) }}
                 className="bg-secondary"
               />
+              <div className="mt-3 grid gap-2">
+                {[
+                  { agent: "A2", title: "Decision alerts", description: "Convert/Hold decisions and confidence", icon: Pause, tone: "bg-warning/10 text-warning-foreground" },
+                  { agent: "A3", title: "Execution alerts", description: "Quotes, swaps, and skipped executions", icon: ArrowRightLeft, tone: "bg-success/10 text-success" },
+                  { agent: "A4", title: "Report alerts", description: "Audit report pointers and review events", icon: FileText, tone: "bg-primary/10 text-primary" },
+                  { agent: "!", title: "Anomaly alerts", description: "Critical events only", icon: AlertTriangle, tone: "bg-destructive/10 text-destructive" },
+                  { agent: "W", title: "Weekly summary", description: "Every Monday 9am", icon: CalendarDays, tone: "bg-primary/10 text-primary" },
+                ].map((alert) => (
+                  <div key={alert.agent} className="flex items-center gap-2 rounded-xl border border-border bg-secondary/40 px-3 py-2">
+                    <span className={`flex h-7 w-7 items-center justify-center rounded-full ${alert.tone}`}>
+                      <alert.icon className="h-3.5 w-3.5" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-black ${alert.tone}`}>{alert.agent}</span>
+                        <p className="truncate text-xs font-bold text-foreground">{alert.title}</p>
+                      </div>
+                      <p className="truncate text-[11px] text-muted-foreground">{alert.description}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Integrations */}
+          <Card>
+            <CardContent className="px-4 py-4">
+              <label className="mb-3 block text-sm font-semibold text-foreground">Settings Integrations</label>
+              <div className="grid gap-2">
+                {["Uniswap v4", "ENS Records", "OG Protocol"].map((name) => (
+                  <div key={name} className="flex items-center gap-3 rounded-xl border border-border bg-secondary/40 px-3 py-2">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-secondary">
+                      <Link2 className="h-4 w-4 text-muted-foreground" />
+                    </span>
+                    <span className="flex-1 text-sm font-semibold text-foreground">{name}</span>
+                    <span className="text-xs font-bold text-success">Active</span>
+                  </div>
+                ))}
+              </div>
             </CardContent>
           </Card>
         </div>
