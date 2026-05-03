@@ -1136,22 +1136,24 @@ export default function SettingsPage() {
       </main>
 
       <Dialog open={ensOpen} onOpenChange={setEnsOpen}>
-        <DialogContent className="w-[calc(100vw-1rem)] max-w-6xl lg:w-[1100px]">
-          <DialogHeader>
+        <DialogContent className="w-[calc(100vw-0.75rem)] max-w-none sm:w-[calc(100vw-2rem)] xl:w-[1280px] 2xl:w-[1400px]">
+          <DialogHeader className="rounded-2xl border border-border bg-card/80 p-4">
             <DialogTitle>ENS Config</DialogTitle>
             <DialogDescription>
               Manage the merchant-facing ENS profile that the CounterAgent ENS plugin exposes to the agent swarm.
             </DialogDescription>
           </DialogHeader>
 
-          <AgentInteractionFlow
-            mode="ens-profile-update"
-            phase={ensSaveState}
-            heightClassName="h-[240px] sm:h-[270px]"
-            className="mb-2"
-          />
+          <div className="grid gap-3 xl:grid-cols-[1.2fr_0.8fr]">
+            <AgentInteractionFlow
+              mode="ens-profile-update"
+              phase={ensSaveState}
+              heightClassName="h-[260px] sm:h-[300px]"
+            />
+            <SettingsAxlTerminal status={axlQuery.data} phase={ensSaveState} compact />
+          </div>
 
-          <div className="grid max-h-[52vh] gap-4 overflow-y-auto py-2 pr-1">
+          <div className="grid max-h-[50vh] gap-4 overflow-y-auto py-2 pr-1">
             <Card>
               <CardContent className="grid gap-3 px-4 py-4 md:grid-cols-2">
                 <div className="md:col-span-2">
@@ -1311,19 +1313,19 @@ export default function SettingsPage() {
       </Dialog>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="w-[calc(100vw-1rem)] max-w-6xl lg:w-[1100px]">
-          <DialogHeader>
+        <DialogContent className="w-[calc(100vw-0.75rem)] max-w-none sm:w-[calc(100vw-2rem)] xl:w-[1280px] 2xl:w-[1400px]">
+          <DialogHeader className="rounded-2xl border border-border bg-card/80 p-4">
             <DialogTitle>Edit Treasury Config</DialogTitle>
             <DialogDescription>
               Updates are written on-chain through MerchantRegistry.update using your connected wallet.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-3 lg:grid-cols-[1.15fr_0.85fr]">
+          <div className="grid gap-3 xl:grid-cols-[1.2fr_0.8fr]">
             <AgentInteractionFlow
               mode="treasury-config-update"
               phase={saveState}
-              heightClassName="h-[240px] sm:h-[270px]"
+              heightClassName="h-[260px] sm:h-[300px]"
             />
             <SettingsAxlTerminal status={axlQuery.data} phase={saveState} draft={draftSummary} compact />
           </div>
