@@ -1,7 +1,7 @@
 import cors from '@fastify/cors';
 import Fastify from 'fastify';
 import { createHash, randomUUID } from 'node:crypto';
-import { createPublicClient, createWalletClient, formatUnits, http, isAddress, parseAbi, parseUnits, type Address, type Hex } from 'viem';
+import { createPublicClient, createWalletClient, encodeAbiParameters, encodeFunctionData, formatUnits, http, isAddress, parseAbi, parseUnits, type Address, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { z } from 'zod';
 import { UniswapApiError, UniswapTradingApiClient, type RouteDiagnostics, type StablecoinSymbol, type TokenConfig } from './uniswap.js';
@@ -110,6 +110,7 @@ const keeperHubConfigured = Boolean(process.env.KEEPERHUB_API_URL && process.env
 const executorConfigured = Boolean(process.env.EXECUTOR_PRIVATE_KEY && !process.env.EXECUTOR_PRIVATE_KEY.includes('<'));
 const treasuryVaultFactoryAddress = envAddress('TREASURY_VAULT_FACTORY_ADDRESS');
 const universalRouterAddress = envAddress(`UNIVERSAL_ROUTER_ADDRESS_${chainId}`) ?? envAddress('UNIVERSAL_ROUTER_ADDRESS');
+const permit2Address = envAddress(`PERMIT2_ADDRESS_${chainId}`) ?? envAddress('PERMIT2_ADDRESS') ?? '0x000000000022D473030F116dDEE9F6B43aC78BA3';
 
 const uniswap = new UniswapTradingApiClient({
   baseUrl: uniswapApiUrl,
@@ -142,7 +143,17 @@ const treasuryVaultFactoryAbi = parseAbi([
 ]);
 
 const treasuryVaultAbi = parseAbi([
+  'function allowedTarget(address target) view returns (bool)',
   'function executeCall(address target,address inputToken,address outputToken,uint256 amountIn,uint256 minAmountOut,uint256 expectedAmountOut,uint16 slippageBps,bytes data) returns (bytes result)'
+]);
+
+const universalRouterAbi = parseAbi([
+  'function execute(bytes commands, bytes[] inputs, uint256 deadline) payable'
+]);
+
+const erc20AllowanceAbi = parseAbi([
+  'function allowance(address owner,address spender) view returns (uint256)',
+  'function approve(address spender,uint256 amount) returns (bool)'
 ]);
 
 type CounterAgentQuote = {
@@ -317,8 +328,8 @@ async function buildV4PoolFallbackQuote(input: z.infer<typeof quoteSchema>, deta
       feeBps: fee === 500 ? 5 : Math.round(fee / 100),
       priceImpactBps: 0,
       slippageBps: input.slippageBps,
-      executable: false,
-      dryRun: true,
+      executable: executionMode === 'vault-live' && executorConfigured && Boolean(universalRouterAddress),
+      dryRun: executionMode !== 'vault-live',
       fallbackReason: details?.reason ?? 'base_sepolia_uniswap_v4_pool_quote',
       apiAttempted: Boolean(details?.apiAttempted),
       apiStatus: details?.apiStatus,
@@ -571,6 +582,7 @@ app.get('/healthz', async () => ({
     treasuryVaultFactoryAddress,
     universalRouterConfigured: Boolean(universalRouterAddress),
     universalRouterAddress,
+    permit2Address,
     supportedTokens: supportedTokens().filter((token) => token.address !== defaultTokenAddress),
     keeperHubConfigured,
     executorConfigured
@@ -661,6 +673,82 @@ function minAmountOutFor(quote: CounterAgentQuote) {
   return (expected * BigInt(10_000 - quote.slippageBps)) / 10_000n;
 }
 
+const v4SwapExactInSingleParam = [{
+  type: 'tuple',
+  components: [
+    {
+      name: 'poolKey',
+      type: 'tuple',
+      components: [
+        { name: 'currency0', type: 'address' },
+        { name: 'currency1', type: 'address' },
+        { name: 'fee', type: 'uint24' },
+        { name: 'tickSpacing', type: 'int24' },
+        { name: 'hooks', type: 'address' }
+      ]
+    },
+    { name: 'zeroForOne', type: 'bool' },
+    { name: 'amountIn', type: 'uint128' },
+    { name: 'amountOutMinimum', type: 'uint128' },
+    { name: 'hookData', type: 'bytes' }
+  ]
+}] as const;
+
+const v4SettleAllParams = [
+  { name: 'currency', type: 'address' },
+  { name: 'maxAmount', type: 'uint256' }
+] as const;
+
+const v4TakeAllParams = [
+  { name: 'currency', type: 'address' },
+  { name: 'minAmount', type: 'uint256' }
+] as const;
+
+function buildV4UniversalRouterCalldata(quote: CounterAgentQuote, vaultAddress: Address, minAmountOut: bigint) {
+  if (quote.provider !== 'uniswap-v4-pool-fallback') return undefined;
+  const raw = quote.rawQuote as { poolKey?: { currency0?: Address; currency1?: Address; fee?: number; tickSpacing?: number; hooks?: Address }; zeroForOne?: boolean } | undefined;
+  if (!raw?.poolKey || typeof raw.zeroForOne !== 'boolean') return undefined;
+  const poolKey = raw.poolKey;
+  if (!poolKey.currency0 || !poolKey.currency1 || poolKey.fee === undefined || poolKey.tickSpacing === undefined || !poolKey.hooks) return undefined;
+
+  // Universal Router v4 command 0x10 executes an action plan. For exact-in we:
+  // 1) swap the exact input through the known v4 pool,
+  // 2) settle the input token through Permit2 from msg.sender (the vault),
+  // 3) take all output back to msg.sender (the vault).
+  const swapParam = encodeAbiParameters(v4SwapExactInSingleParam, [{
+    poolKey: {
+      currency0: poolKey.currency0,
+      currency1: poolKey.currency1,
+      fee: poolKey.fee,
+      tickSpacing: poolKey.tickSpacing,
+      hooks: poolKey.hooks
+    },
+    zeroForOne: raw.zeroForOne,
+    amountIn: BigInt(quote.amountInRaw),
+    amountOutMinimum: minAmountOut,
+    hookData: '0x'
+  }]);
+  const settleAllParam = encodeAbiParameters(v4SettleAllParams, [quote.tokenIn, BigInt(quote.amountInRaw)]);
+  const takeAllParam = encodeAbiParameters(v4TakeAllParams, [quote.tokenOut, minAmountOut]);
+  const v4Plan = encodeAbiParameters([
+    { name: 'actions', type: 'bytes' },
+    { name: 'params', type: 'bytes[]' }
+  ], ['0x060c0f', [swapParam, settleAllParam, takeAllParam]]);
+  const deadlineSeconds = BigInt(Math.floor(Date.now() / 1000) + Number(process.env.V4_SWAP_DEADLINE_SECONDS ?? 600));
+
+  return {
+    target: universalRouterAddress,
+    calldata: encodeFunctionData({
+      abi: universalRouterAbi,
+      functionName: 'execute',
+      args: ['0x10', [v4Plan], deadlineSeconds]
+    }),
+    source: 'uniswap-v4-universal-router' as const,
+    spender: permit2Address as Address,
+    swapper: vaultAddress
+  };
+}
+
 async function buildVaultRouterCall(input: z.infer<typeof executeSchema>, vaultAddress: Address, quote: CounterAgentQuote) {
   if (input.routerCalldata) {
     return {
@@ -671,6 +759,10 @@ async function buildVaultRouterCall(input: z.infer<typeof executeSchema>, vaultA
   }
 
   if (quote.provider !== 'uniswap-trading-api' || !quote.rawQuote) {
+    const minAmountOut = minAmountOutFor(quote);
+    const v4RouterCall = buildV4UniversalRouterCalldata(quote, vaultAddress, minAmountOut);
+    if (v4RouterCall?.target && v4RouterCall.calldata) return v4RouterCall;
+
     return {
       target: universalRouterAddress,
       calldata: undefined,
@@ -709,6 +801,7 @@ async function executeViaVault(input: z.infer<typeof executeSchema>) {
 
   const quote = await attachApprovalDiagnostics({ ...input, merchantWallet: vaultAddress }, await buildQuote({ ...input, merchantWallet: vaultAddress }));
   const routerCall = await buildVaultRouterCall(input, vaultAddress, quote);
+  const routerCallError = 'error' in routerCall ? routerCall.error : undefined;
   const expectedAmountOut = BigInt(quote.estimatedAmountOutRaw);
   const minAmountOut = minAmountOutFor(quote);
   const dryRunPayload = {
@@ -721,7 +814,7 @@ async function executeViaVault(input: z.infer<typeof executeSchema>) {
       target: routerCall.target,
       source: routerCall.source,
       calldataReady: Boolean(routerCall.calldata),
-      error: routerCall.error
+      error: routerCallError
     },
     executeCall: {
       target: routerCall.target,
@@ -739,7 +832,7 @@ async function executeViaVault(input: z.infer<typeof executeSchema>) {
 
   if (!vault.deployed) return { ok: false, error: 'vault_not_deployed', vault };
   if (!executorConfigured || !process.env.EXECUTOR_PRIVATE_KEY) return { ok: false, error: 'executor_not_configured', vault };
-  if (!routerCall.target || !routerCall.calldata) return { ok: false, error: routerCall.error ?? 'router_calldata_not_ready', vault, quote };
+  if (!routerCall.target || !routerCall.calldata) return { ok: false, error: routerCallError ?? 'router_calldata_not_ready', vault, quote };
 
   const account = privateKeyToAccount(process.env.EXECUTOR_PRIVATE_KEY as Hex);
   const walletClient = createWalletClient({
@@ -747,6 +840,56 @@ async function executeViaVault(input: z.infer<typeof executeSchema>) {
     transport: http(rpcUrl),
     chain: publicClient.chain
   });
+
+  let approvalTransactionHash: Hex | null = null;
+  if (routerCall.source === 'uniswap-v4-universal-router') {
+    const tokenApprovalTargetAllowed = await publicClient.readContract({
+      address: vaultAddress,
+      abi: treasuryVaultAbi,
+      functionName: 'allowedTarget',
+      args: [quote.tokenIn]
+    });
+    if (!tokenApprovalTargetAllowed) {
+      return {
+        ok: false,
+        error: 'vault_token_approval_target_not_allowed',
+        vault,
+        quote,
+        requiredTarget: quote.tokenIn,
+        message: 'The vault must allow the input token as a temporary target so A3 can approve Permit2 before the Base Sepolia Uniswap v4 swap.'
+      };
+    }
+
+    const permit2Allowance = await publicClient.readContract({
+      address: quote.tokenIn,
+      abi: erc20AllowanceAbi,
+      functionName: 'allowance',
+      args: [vaultAddress, permit2Address as Address]
+    });
+    if (permit2Allowance < BigInt(quote.amountInRaw)) {
+      const approvePermit2Calldata = encodeFunctionData({
+        abi: erc20AllowanceAbi,
+        functionName: 'approve',
+        args: [permit2Address as Address, BigInt(quote.amountInRaw)]
+      });
+      approvalTransactionHash = await walletClient.writeContract({
+        address: vaultAddress,
+        abi: treasuryVaultAbi,
+        functionName: 'executeCall',
+        args: [
+          quote.tokenIn,
+          quote.tokenIn,
+          quote.tokenOut,
+          BigInt(quote.amountInRaw),
+          0n,
+          0n,
+          quote.slippageBps,
+          approvePermit2Calldata
+        ]
+      });
+      await publicClient.waitForTransactionReceipt({ hash: approvalTransactionHash });
+    }
+  }
 
   const transactionHash = await walletClient.writeContract({
     address: vaultAddress,
@@ -766,8 +909,9 @@ async function executeViaVault(input: z.infer<typeof executeSchema>) {
 
   return {
     ...dryRunPayload,
-    status: 'vault-submitted',
+    status: 'vault-swapped',
     executor: account.address,
+    approvalTransactionHash,
     transactionHash
   };
 }

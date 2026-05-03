@@ -50,9 +50,11 @@ const factoryAbi = parseAbi([
 const vaultAbi = parseAbi([
   "function owner() view returns (address)",
   "function authorizedAgent() view returns (address)",
+  "function allowedTarget(address target) view returns (bool)",
   "function policy() view returns (uint256 maxTradeAmount,uint256 dailyLimit,uint16 maxSlippageBps,uint64 expiresAt,bool active)",
   "function deposit(address token,uint256 amount)",
   "function configureAgent(address newAgent,(uint256 maxTradeAmount,uint256 dailyLimit,uint16 maxSlippageBps,uint64 expiresAt,bool active) newPolicy)",
+  "function setTargetAllowed(address target,bool allowed)",
 ])
 
 const erc20Abi = parseAbi([
@@ -84,6 +86,11 @@ function expiryDate(value?: number | bigint) {
   const timestamp = typeof value === "bigint" ? Number(value) : value
   if (!timestamp) return "Not configured"
   return new Date(timestamp * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+}
+
+function baseScanTxUrl(chainId: number, hash?: string | null) {
+  if (!hash) return undefined
+  return chainId === 84532 ? `https://sepolia.basescan.org/tx/${hash}` : undefined
 }
 
 function policyFromPlan(plan?: Awaited<ReturnType<typeof prepareVaultPlan>>) {
@@ -164,6 +171,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
       selectedToken && address && vaultAddress ? { address: selectedToken.address, abi: erc20Abi, functionName: "allowance", args: [address, vaultAddress], chainId: vaultChainId } : undefined,
       vaultDeployed && vaultAddress ? { address: vaultAddress, abi: vaultAbi, functionName: "authorizedAgent", chainId: vaultChainId } : undefined,
       vaultDeployed && vaultAddress ? { address: vaultAddress, abi: vaultAbi, functionName: "policy", chainId: vaultChainId } : undefined,
+      vaultDeployed && vaultAddress && selectedToken ? { address: vaultAddress, abi: vaultAbi, functionName: "allowedTarget", args: [selectedToken.address], chainId: vaultChainId } : undefined,
     ].filter(Boolean) as any,
   })
 
@@ -173,9 +181,10 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
   const currentAllowance = vaultData?.[2]?.status === "success" ? vaultData[2].result as bigint : BigInt(0)
   const authorizedAgent = vaultData?.[3]?.status === "success" ? vaultData[3].result as `0x${string}` : undefined
   const onchainPolicy = vaultData?.[4]?.status === "success" ? vaultData[4].result as readonly [bigint, bigint, number, bigint, boolean] : undefined
+  const tokenApprovalTargetAllowed = vaultData?.[5]?.status === "success" ? Boolean(vaultData[5].result) : false
   const policyActive = Boolean(onchainPolicy?.[4])
   const needsApproval = parsedDepositAmount > BigInt(0) && currentAllowance < parsedDepositAmount
-  const readyForAutopilot = Boolean(vaultDeployed && vaultTokenBalance > BigInt(0) && policyActive)
+  const readyForAutopilot = Boolean(vaultDeployed && vaultTokenBalance > BigInt(0) && policyActive && tokenApprovalTargetAllowed)
 
   const refresh = async () => {
     await Promise.all([vaultPlanQuery.refetch(), chainReads.refetch(), vaultReads.refetch()])
@@ -211,6 +220,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
   async function createVault() {
     if (!factoryAddress || !vaultPlanQuery.data) return
     const tokenAddresses = vaultPlanQuery.data.vault.tokenAllowlist.map((token) => token.address)
+    const initialTargets = Array.from(new Set([...routerTargets, ...tokenAddresses]))
     const agent = vaultPlanQuery.data.vault.authorizedAgent
     if (!agent) {
       setMessage("A3 executor address is not configured in the vault plan.")
@@ -220,7 +230,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
       address: factoryAddress,
       abi: factoryAbi,
       functionName: "createVault",
-      args: [agent, tokenAddresses, routerTargets],
+      args: [agent, tokenAddresses, initialTargets],
       chainId: vaultChainId,
     }))
   }
@@ -232,6 +242,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
       return
     }
     const tokenAddresses = vaultPlanQuery.data.vault.tokenAllowlist.map((token) => token.address)
+    const initialTargets = Array.from(new Set([...routerTargets, ...tokenAddresses]))
     const agent = vaultPlanQuery.data.vault.authorizedAgent
     const nextPolicy = policyFromPlan(vaultPlanQuery.data)
     if (!agent || !nextPolicy) {
@@ -251,7 +262,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
           address: factoryAddress,
           abi: factoryAbi,
           functionName: "createVault",
-          args: [agent, tokenAddresses, routerTargets],
+          args: [agent, tokenAddresses, initialTargets],
           chainId: vaultChainId,
         }))
         activeVault = await publicClient.readContract({ address: factoryAddress, abi: factoryAbi, functionName: "vaultOf", args: [address] }) as `0x${string}`
@@ -295,8 +306,20 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
         }))
       }
 
+      const approvalTargetAllowedNow = await publicClient.readContract({ address: activeVault, abi: vaultAbi, functionName: "allowedTarget", args: [selectedToken.address] }) as boolean
+      if (!approvalTargetAllowedNow) {
+        setFlowPhase("confirming")
+        await submitAndWait("Authorize live swap approval", () => writeContractAsync({
+          address: activeVault,
+          abi: vaultAbi,
+          functionName: "setTargetAllowed",
+          args: [selectedToken.address, true],
+          chainId: vaultChainId,
+        }))
+      }
+
       setFlowPhase("success")
-      setMessage("Vault setup complete: vault created, deposit received, and A3 policy active.")
+      setMessage("Vault setup complete: deposit received, A3 policy active, and Base Sepolia live swap target authorized.")
       await refresh()
       onCompleted?.()
     } catch (error) {
@@ -343,6 +366,17 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
     }))
   }
 
+  async function authorizeLiveSwapTarget() {
+    if (!selectedToken || !vaultAddress) return
+    await withTx("Authorize live swap approval", () => writeContractAsync({
+      address: vaultAddress,
+      abi: vaultAbi,
+      functionName: "setTargetAllowed",
+      args: [selectedToken.address, true],
+      chainId: vaultChainId,
+    }))
+  }
+
   async function runAutonomousCycle() {
     if (!address) return
     setBusyAction("Run autonomous A3 cycle")
@@ -376,7 +410,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
       setWorkflow(response)
       setFlowPhase(response.decision?.decision?.action === "CONVERT" ? "success" : "confirming")
       setMessage(response.execution?.transactionHash
-        ? `A3 submitted vault execution: ${shortenAddress(response.execution.transactionHash)}`
+        ? `A3 submitted real Base Sepolia Uniswap swap: ${shortenAddress(response.execution.transactionHash)}`
         : `A3 evaluated the vault path: ${response.execution?.status ?? response.status}. No swap transaction was submitted.`)
       onCompleted?.()
     } catch (error) {
@@ -465,11 +499,14 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
             <Button type="button" variant="outline" onClick={configurePolicy} disabled={!vaultDeployed || policyActive || isSwitching || Boolean(busyAction)}>
               {busyAction === "Configure A3 policy" ? <Loader2 className="animate-spin" /> : <ShieldCheck />} Policy
             </Button>
+            <Button type="button" variant="outline" onClick={authorizeLiveSwapTarget} disabled={!vaultDeployed || !selectedToken || tokenApprovalTargetAllowed || isSwitching || Boolean(busyAction)}>
+              {busyAction === "Authorize live swap approval" ? <Loader2 className="animate-spin" /> : <ShieldCheck />} Authorize live swap
+            </Button>
             <Button type="button" onClick={runAutonomousCycle} disabled={!address || !readyForAutopilot || Boolean(busyAction)}>
               {busyAction === "Run autonomous A3 cycle" ? <Loader2 className="animate-spin" /> : <Bot />} Run A3 autopilot
             </Button>
             {!readyForAutopilot && address && (
-              <p className="basis-full text-xs text-muted-foreground">Use “Setup vault + deposit” for the guided multi-signature flow. It will prompt for create, approve, deposit, and policy as needed.</p>
+              <p className="basis-full text-xs text-muted-foreground">Use “Setup vault + deposit” for the guided flow. For existing vaults, “Authorize live swap” enables A3 to approve Permit2 for the selected test token, then Run A3 autopilot can submit the real Base Sepolia Uniswap transaction.</p>
             )}
           </div>
         </div>
@@ -477,7 +514,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
         <div className="grid gap-3 text-xs sm:grid-cols-3">
           <div className="rounded-lg bg-muted/40 p-3"><span className="font-semibold text-card-foreground">1. Deposit</span><br />Merchant signs real vault setup, approval, and deposit transactions.</div>
           <div className="rounded-lg bg-muted/40 p-3"><span className="font-semibold text-card-foreground">2. Autonomous policy</span><br />A3 is bounded by max trade, daily limit, slippage, allowed tokens, and allowed targets.</div>
-          <div className="rounded-lg bg-muted/40 p-3"><span className="font-semibold text-card-foreground">3. Vault cycle</span><br />A0→A1→A2→A3→A4 evaluates the vault path; A3 submits only when live router calldata is available.</div>
+          <div className="rounded-lg bg-muted/40 p-3"><span className="font-semibold text-card-foreground">3. Vault cycle</span><br />A0→A1→A2→A3→A4 evaluates the vault path; A3 submits a Base Sepolia Uniswap tx when router calldata and approval are ready.</div>
         </div>
 
         {message && <p className="rounded-lg border border-border bg-background/70 p-3 text-sm text-muted-foreground">{message}</p>}
@@ -495,6 +532,11 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
               {workflow.decision?.decision?.reason ?? "A3 completed the vault-aware execution path."}
               {workflow.execution?.transactionHash ? ` Tx: ${workflow.execution.transactionHash}` : " Current A3 mode validates the merchant vault and executeCall envelope without submitting a swap transaction unless live router calldata is available."}
             </p>
+            {workflow.execution?.transactionHash && (
+              <a className="mt-2 inline-flex text-xs font-semibold text-primary underline-offset-4 hover:underline" href={baseScanTxUrl(vaultChainId, workflow.execution.transactionHash)} target="_blank" rel="noreferrer">
+                View real swap transaction on BaseScan
+              </a>
+            )}
           </div>
         )}
 
