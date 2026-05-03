@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { CheckCircle2, Pause, AlertTriangle, MessageCircle, ArrowRightLeft, FileText, RadioTower } from "lucide-react"
 import { AppHeader } from "@/components/app-header"
@@ -8,7 +8,9 @@ import { Card, CardContent } from "@/components/ui/card"
 import { useConnectedWalletAddress } from "@/hooks/use-connected-wallet-address"
 import { fetchAxlStatus, fetchDashboardState, type AxlStatus, type DashboardState } from "@/lib/a0"
 
-const filters = ["All", "Swaps", "Holds", "AXL", "Anomalies"] as const
+const filters = ["All", "Swaps", "Holds", "AXL", "Settings", "Anomalies"] as const
+
+const settingsAxlEventsKey = "counteragent:settings-axl-events"
 
 type AlertStatus = "Success" | "Hold" | "Review"
 
@@ -21,7 +23,20 @@ interface AlertItem {
   time: string
   timestamp: string
   status: AlertStatus
-  agent: "A1" | "A2" | "A3" | "A4" | "AXL"
+  agent: "A1" | "A2" | "A3" | "A4" | "AXL" | "SET"
+}
+
+type SettingsAxlEvent = {
+  id: string
+  timestamp: string
+  kind: "treasury" | "ens"
+  phase: string
+  fromAgent: string
+  toAgent: string
+  messageType: string
+  transport: string
+  ok: boolean
+  detail: string
 }
 
 const statusStyles: Record<AlertStatus, string> = {
@@ -36,6 +51,7 @@ const agentStyles: Record<AlertItem["agent"], string> = {
   A3: "bg-success/10 text-success",
   A4: "bg-primary/10 text-primary",
   AXL: "bg-primary/10 text-primary",
+  SET: "bg-chart-3/10 text-chart-3",
 }
 
 function relativeTime(value: string) {
@@ -57,6 +73,32 @@ function agentForMessage(message: NonNullable<AxlStatus["recentMessages"]>[numbe
   return "AXL"
 }
 
+
+function loadSettingsAxlEvents(): SettingsAxlEvent[] {
+  if (typeof window === "undefined") return []
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(settingsAxlEventsKey) || "[]")
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((item): item is SettingsAxlEvent => Boolean(item?.id && item?.timestamp && item?.messageType)).slice(0, 40)
+  } catch {
+    return []
+  }
+}
+
+function buildSettingsAlerts(events: SettingsAxlEvent[]): AlertItem[] {
+  return events.slice(0, 20).map((event): AlertItem => ({
+    icon: RadioTower,
+    iconColor: event.ok ? "text-chart-3" : "text-destructive",
+    iconBg: event.ok ? "bg-chart-3/10" : "bg-destructive/10",
+    title: `Settings AXL ${event.kind === "ens" ? "ENS" : "Treasury"}`,
+    description: `${event.fromAgent} → ${event.toAgent}\n${event.messageType} · ${event.transport}\n${event.detail}`,
+    time: relativeTime(event.timestamp),
+    timestamp: event.timestamp,
+    status: event.ok ? "Review" : "Hold",
+    agent: "SET",
+  }))
+}
+
 function buildAxlAlerts(axl?: AxlStatus): AlertItem[] {
   return (axl?.recentMessages ?? []).slice(0, 20).map((message): AlertItem => {
     const ok = message.axl?.ok === true
@@ -75,7 +117,7 @@ function buildAxlAlerts(axl?: AxlStatus): AlertItem[] {
   })
 }
 
-function buildAlerts(dashboard?: DashboardState, axl?: AxlStatus): AlertItem[] {
+function buildAlerts(dashboard?: DashboardState, axl?: AxlStatus, settingsEvents: SettingsAxlEvent[] = []): AlertItem[] {
   const decisionAlerts = (dashboard?.decisions ?? []).map((decision): AlertItem => ({
     icon: decision.action === "CONVERT" ? CheckCircle2 : Pause,
     iconColor: decision.action === "CONVERT" ? "text-success" : "text-warning-foreground",
@@ -112,7 +154,7 @@ function buildAlerts(dashboard?: DashboardState, axl?: AxlStatus): AlertItem[] {
     agent: "A4",
   }))
 
-  return [...buildAxlAlerts(axl), ...decisionAlerts, ...executionAlerts, ...reportAlerts]
+  return [...buildSettingsAlerts(settingsEvents), ...buildAxlAlerts(axl), ...decisionAlerts, ...executionAlerts, ...reportAlerts]
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     .slice(0, 20)
 }
@@ -121,14 +163,16 @@ function matchesFilter(alert: AlertItem, filter: string) {
   if (filter === "All") return true
   if (filter === "Swaps") return alert.agent === "A3"
   if (filter === "Holds") return alert.status === "Hold"
-  if (filter === "AXL") return alert.title.startsWith("AXL ")
-  if (filter === "Anomalies") return alert.status === "Review" && !alert.title.startsWith("AXL ")
+  if (filter === "AXL") return alert.title.startsWith("AXL ") || alert.title.startsWith("Settings AXL ")
+  if (filter === "Settings") return alert.title.startsWith("Settings AXL ")
+  if (filter === "Anomalies") return alert.status === "Review" && !alert.title.startsWith("AXL ") && !alert.title.startsWith("Settings AXL ")
   return true
 }
 
 export default function AlertsPage() {
   const { address } = useConnectedWalletAddress()
   const [filter, setFilter] = useState<string>("All")
+  const [settingsEvents, setSettingsEvents] = useState<SettingsAxlEvent[]>([])
   const dashboardQuery = useQuery({
     queryKey: ["dashboard-state", address],
     queryFn: () => fetchDashboardState(address!),
@@ -143,7 +187,20 @@ export default function AlertsPage() {
     staleTime: 2_000,
   })
 
-  const alerts = useMemo(() => buildAlerts(dashboardQuery.data, axlQuery.data), [dashboardQuery.data, axlQuery.data])
+  useEffect(() => {
+    const refresh = () => setSettingsEvents(loadSettingsAxlEvents())
+    refresh()
+    const interval = window.setInterval(refresh, 5_000)
+    window.addEventListener("storage", refresh)
+    window.addEventListener("counteragent:settings-axl-event", refresh)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener("storage", refresh)
+      window.removeEventListener("counteragent:settings-axl-event", refresh)
+    }
+  }, [])
+
+  const alerts = useMemo(() => buildAlerts(dashboardQuery.data, axlQuery.data, settingsEvents), [dashboardQuery.data, axlQuery.data, settingsEvents])
   const filteredAlerts = alerts.filter((alert) => matchesFilter(alert, filter))
 
   return (
@@ -158,7 +215,7 @@ export default function AlertsPage() {
               </div>
               <div className="flex-1">
                 <p className="text-sm font-bold">Agent Alerts</p>
-                <p className="text-xs text-header-foreground/60">Live Decision, Execution, Reporting, and Gensyn AXL message events</p>
+                <p className="text-xs text-header-foreground/60">Live Decision, Execution, Reporting, Settings, and Gensyn AXL message events</p>
               </div>
               <span className="flex items-center gap-1.5 rounded-full bg-success/20 px-2.5 py-1 text-xs font-semibold text-success">
                 <span className="h-1.5 w-1.5 rounded-full bg-success" />
@@ -185,7 +242,7 @@ export default function AlertsPage() {
         <div>
           <p className="mb-3 text-xs font-bold uppercase tracking-widest text-muted-foreground">Recent Live Events</p>
           <div className="flex flex-col gap-2">
-            {!address && !axlQuery.data?.recentMessages?.length ? (
+            {!address && !axlQuery.data?.recentMessages?.length && settingsEvents.length === 0 ? (
               <Card>
                 <CardContent className="px-4 py-4 text-sm text-muted-foreground">
                   Connect a registered wallet to see merchant alerts. AXL transport logs appear here as soon as agents exchange messages.
@@ -200,7 +257,7 @@ export default function AlertsPage() {
             ) : (
               <Card>
                 <CardContent className="px-4 py-4 text-sm text-muted-foreground">
-                  No alerts yet. Registration, dashboard lookup, or workflow dry-runs will appear here.
+                  No alerts yet. Registration, Settings updates, dashboard lookup, or workflow dry-runs will appear here.
                 </CardContent>
               </Card>
             )}

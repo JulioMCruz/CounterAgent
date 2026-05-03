@@ -238,6 +238,38 @@ async function cropImageFileForEns(file: File, field: EnsImageField) {
 }
 
 
+
+const settingsAxlEventsKey = "counteragent:settings-axl-events"
+
+type SettingsAxlEvent = {
+  id: string
+  timestamp: string
+  kind: "treasury" | "ens"
+  phase: "preparing" | "switching" | "confirming" | "mining" | "success" | "error"
+  fromAgent: string
+  toAgent: string
+  messageType: string
+  transport: string
+  ok: boolean
+  detail: string
+}
+
+function publishSettingsAxlEvent(event: Omit<SettingsAxlEvent, "id" | "timestamp">) {
+  if (typeof window === "undefined") return
+  try {
+    const current = JSON.parse(window.localStorage.getItem(settingsAxlEventsKey) || "[]") as SettingsAxlEvent[]
+    const next: SettingsAxlEvent = {
+      ...event,
+      id: `${event.kind}-${event.phase}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      timestamp: new Date().toISOString(),
+    }
+    window.localStorage.setItem(settingsAxlEventsKey, JSON.stringify([next, ...current].slice(0, 40)))
+    window.dispatchEvent(new CustomEvent("counteragent:settings-axl-event", { detail: next }))
+  } catch (error) {
+    console.debug("[CounterAgent Settings] could not publish local settings AXL alert", error)
+  }
+}
+
 type AxlMessage = NonNullable<AxlStatus["recentMessages"]>[number]
 
 function agentShortName(name?: string) {
@@ -663,6 +695,16 @@ export default function SettingsPage() {
     try {
       setSaveState("preparing")
       setSaveMessage("Orchestration Agent is preparing the treasury config update…")
+      publishSettingsAxlEvent({
+        kind: "treasury",
+        phase: "preparing",
+        fromAgent: "A0-Orchestrator",
+        toAgent: "A1-Monitor",
+        messageType: "settings_treasury_config-prepare",
+        transport: "axl-settings",
+        ok: true,
+        detail: `Preparing treasury config update: ${fxThresholdBps} bps, ${draft.riskTolerance}, ${draft.preferredStablecoin}`,
+      })
 
       setSaveState("switching")
       setSaveMessage(`Please approve the switch to ${activeChain.name} for registry writes…`)
@@ -670,6 +712,16 @@ export default function SettingsPage() {
 
       setSaveState("confirming")
       setSaveMessage("Confirm treasury config update in your wallet…")
+      publishSettingsAxlEvent({
+        kind: "treasury",
+        phase: "confirming",
+        fromAgent: "A0-Orchestrator",
+        toAgent: "Merchant-Wallet",
+        messageType: "settings_treasury_config-wallet-confirm",
+        transport: "wallet-signature",
+        ok: true,
+        detail: "Merchant wallet signature requested for MerchantRegistry.update",
+      })
       console.debug("[CounterAgent Settings] submitting MerchantRegistry.update", {
         registry: merchantRegistryAddress,
         fxThresholdBps,
@@ -696,6 +748,16 @@ export default function SettingsPage() {
       setLastTxHash(hash)
       setSaveState("mining")
       setSaveMessage("Merchant Registry is confirming the treasury config update…")
+      publishSettingsAxlEvent({
+        kind: "treasury",
+        phase: "mining",
+        fromAgent: "Merchant-Wallet",
+        toAgent: "Merchant-Registry",
+        messageType: "settings_treasury_config-registry-update",
+        transport: "onchain-registry",
+        ok: true,
+        detail: `Registry update submitted: ${hash}`,
+      })
       console.debug("[CounterAgent Settings] update tx submitted", { hash })
       await publicClient?.waitForTransactionReceipt({ hash })
       console.debug("[CounterAgent Settings] update tx confirmed", { hash })
@@ -715,6 +777,16 @@ export default function SettingsPage() {
       treasuryOptimisticUntilRef.current = Date.now() + 20_000
       setSaveState("success")
       setSaveMessage("Treasury config updated on-chain. Settings values are updated locally while the registry cache catches up.")
+      publishSettingsAxlEvent({
+        kind: "treasury",
+        phase: "success",
+        fromAgent: "Merchant-Registry",
+        toAgent: "A4-Reporting",
+        messageType: "settings_treasury_config-update-confirmed",
+        transport: "axl-settings",
+        ok: true,
+        detail: `Treasury config confirmed on-chain: ${fxThresholdBps} bps, ${draft.riskTolerance}, ${draft.preferredStablecoin}`,
+      })
       window.setTimeout(() => {
         treasuryOptimisticUntilRef.current = 0
         loadSession()
@@ -723,6 +795,16 @@ export default function SettingsPage() {
       console.error("[CounterAgent Settings] treasury config update failed", error)
       setSaveState("error")
       setSaveMessage(friendlyErrorMessage(error, "Treasury config update failed."))
+      publishSettingsAxlEvent({
+        kind: "treasury",
+        phase: "error",
+        fromAgent: "A0-Orchestrator",
+        toAgent: "Settings-UI",
+        messageType: "settings_treasury_config-update-error",
+        transport: "axl-settings",
+        ok: false,
+        detail: error instanceof Error ? error.message : "Treasury config update failed",
+      })
     }
   }
 
@@ -750,6 +832,16 @@ export default function SettingsPage() {
     try {
       setEnsSaveState("preparing")
       setEnsSaveMessage("Orchestration Agent is preparing the ENS profile update…")
+      publishSettingsAxlEvent({
+        kind: "ens",
+        phase: "preparing",
+        fromAgent: "A0-Orchestrator",
+        toAgent: "A1-Monitor",
+        messageType: "settings_ens_profile-prepare",
+        transport: "axl-settings",
+        ok: true,
+        detail: "Preparing ENS profile records for Settings update",
+      })
       let draftForSave = ensDraft
 
       if (ensImageFiles.merchantImage) {
@@ -792,6 +884,16 @@ export default function SettingsPage() {
       for (const [index, [key, value]] of entries.entries()) {
         setEnsSaveState("confirming")
         setEnsSaveMessage(`Confirm ENS record ${index + 1} of ${entries.length}: ${key}`)
+        publishSettingsAxlEvent({
+          kind: "ens",
+          phase: "confirming",
+          fromAgent: "A1-Monitor",
+          toAgent: "Merchant-Wallet",
+          messageType: "settings_ens_profile-wallet-confirm",
+          transport: "wallet-signature",
+          ok: true,
+          detail: `Confirm ENS record ${index + 1}/${entries.length}: ${key}`,
+        })
         const hash = await writeContractAsync({
           address: resolver,
           abi: publicResolverAbi,
@@ -803,6 +905,16 @@ export default function SettingsPage() {
         setEnsLastTxHash(hash)
         setEnsSaveState("mining")
         setEnsSaveMessage(`Mining ENS record ${index + 1} of ${entries.length}: ${key}`)
+        publishSettingsAxlEvent({
+          kind: "ens",
+          phase: "mining",
+          fromAgent: "Merchant-Wallet",
+          toAgent: "ENS-Resolver",
+          messageType: "settings_ens_profile-setText",
+          transport: "ens-resolver",
+          ok: true,
+          detail: `ENS setText submitted for ${key}: ${hash}`,
+        })
         await ensPublicClient?.waitForTransactionReceipt({ hash })
       }
 
@@ -830,6 +942,16 @@ export default function SettingsPage() {
       setEnsImageFiles({ merchantImage: null, header: null })
       setEnsSaveState("success")
       setEnsSaveMessage(`ENS profile records updated through the ENS Monitor Agent${lastHash ? "." : ""}`)
+      publishSettingsAxlEvent({
+        kind: "ens",
+        phase: "success",
+        fromAgent: "ENS-Resolver",
+        toAgent: "A4-Reporting",
+        messageType: "settings_ens_profile-update-confirmed",
+        transport: "axl-settings",
+        ok: true,
+        detail: `${entries.length} ENS record(s) updated through Settings`,
+      })
       window.setTimeout(() => {
         ensOptimisticUntilRef.current = 0
         loadSession()
@@ -838,6 +960,16 @@ export default function SettingsPage() {
       console.error("[CounterAgent Settings] ENS profile update failed", error)
       setEnsSaveState("error")
       setEnsSaveMessage(friendlyErrorMessage(error, "ENS profile update failed."))
+      publishSettingsAxlEvent({
+        kind: "ens",
+        phase: "error",
+        fromAgent: "A1-Monitor",
+        toAgent: "Settings-UI",
+        messageType: "settings_ens_profile-update-error",
+        transport: "axl-settings",
+        ok: false,
+        detail: error instanceof Error ? error.message : "ENS profile update failed",
+      })
     }
   }
 
