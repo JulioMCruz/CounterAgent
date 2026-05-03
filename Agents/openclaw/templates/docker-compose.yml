@@ -43,7 +43,7 @@ services:
       - GENSYN_AXL_SERVICE_A2=${GENSYN_AXL_SERVICE_A2:-counteragent-decision}
       - GENSYN_AXL_SERVICE_A3=${GENSYN_AXL_SERVICE_A3:-counteragent-execution}
       - GENSYN_AXL_SERVICE_A4=${GENSYN_AXL_SERVICE_A4:-counteragent-reporting}
-      - GENSYN_AXL_FALLBACK_HTTP=${GENSYN_AXL_FALLBACK_HTTP:-false}
+      - GENSYN_AXL_FALLBACK_HTTP=${GENSYN_AXL_FALLBACK_HTTP:-true}
       - ENS_PARENT_NAME=${ENS_PARENT_NAME:-counteragents.eth}
       - ORCHESTRATOR_INTERNAL_TOKEN=${ORCHESTRATOR_INTERNAL_TOKEN:-}
     networks: [agents]
@@ -317,14 +317,14 @@ services:
     environment:
       - PORT=8791
       - CORS_ORIGIN=https://counteragent.netlify.app,https://counteragent.perkos.xyz,https://orchestrator.counteragent.perkos.xyz
-      - EXECUTION_MODE=${A3_EXECUTION_MODE:-dry-run}
-      - UNISWAP_QUOTE_MODE=api-first
+      - EXECUTION_MODE=${A3_EXECUTION_MODE:-vault-dry-run}
+      - UNISWAP_QUOTE_MODE=${UNISWAP_QUOTE_MODE:-api-first}
       - CHAIN_ID=${A3_CHAIN_ID:-84532}
       - BASE_RPC_URL=${BASE_RPC_URL:-https://sepolia.base.org}
-      - UNISWAP_API_URL=https://trade-api.gateway.uniswap.org/v1
+      - UNISWAP_API_URL=${UNISWAP_API_URL:-https://trade-api.gateway.uniswap.org/v1}
       - UNISWAP_API_KEY=${UNISWAP_API_KEY:-}
-      - UNISWAP_RETRY_COUNT=2
-      - UNISWAP_TIMEOUT_MS=10000
+      - UNISWAP_RETRY_COUNT=${UNISWAP_RETRY_COUNT:-2}
+      - UNISWAP_TIMEOUT_MS=${UNISWAP_TIMEOUT_MS:-10000}
       - USDC_TOKEN_ADDRESS_84532=${USDC_TOKEN_ADDRESS_84532:-}
       - EURC_TOKEN_ADDRESS_84532=${EURC_TOKEN_ADDRESS_84532:-}
       - USDT_TOKEN_ADDRESS_84532=${USDT_TOKEN_ADDRESS_84532:-}

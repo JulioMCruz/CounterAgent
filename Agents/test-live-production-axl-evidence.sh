@@ -2,11 +2,11 @@
 set -euo pipefail
 
 A0_URL="${A0_URL:-https://counteragents.cc/api/a0}"
-A0_DIRECT_URL="${A0_DIRECT_URL:-http://52.200.130.200}"
-A1_URL="${A1_URL:-http://18.234.193.184}"
-A2_URL="${A2_URL:-http://54.166.11.128}"
-A3_URL="${A3_URL:-http://34.226.160.114}"
-A4_URL="${A4_URL:-http://107.23.81.60}"
+A0_DIRECT_URL="${A0_DIRECT_URL:-https://orchestrator.counteragent.perkos.xyz}"
+A1_URL="${A1_URL:-https://monitor.counteragent.perkos.xyz}"
+A2_URL="${A2_URL:-https://decision.counteragent.perkos.xyz}"
+A3_URL="${A3_URL:-https://execution.counteragent.perkos.xyz}"
+A4_URL="${A4_URL:-https://reporting.counteragent.perkos.xyz}"
 
 AXL_PEER_A1="${AXL_PEER_A1:-87c3ecafcc3fe0a707ca941df307f888d44551f1186d63b5075399fef061d5fb}"
 AXL_PEER_A2="${AXL_PEER_A2:-5ac8083de65af82381c2a26ba68ff53a454ce6464dc09f83f2bdb9c91c77a836}"
@@ -92,6 +92,12 @@ for role in ['a0','a1','a2','a3','a4']:
     assert data.get('ok') is True, f'{role} health not ok'
 a0=json.loads((root/'a0-health.json').read_text())
 assert a0.get('agents',{}).get('registryRelayerConfigured') is True, 'A0 registry relayer not configured'
+a3=json.loads((root/'a3-health.json').read_text())
+a3_integrations=a3.get('integrations') or {}
+assert a3.get('executionMode') == 'vault-dry-run', f"A3 execution mode must be vault-dry-run, got {a3.get('executionMode')}"
+assert a3.get('quoteMode') == 'api-first', f"A3 quote mode must be api-first, got {a3.get('quoteMode')}"
+assert a3_integrations.get('uniswapApiConfigured') is True, 'A3 Uniswap API key is not configured'
+assert a3_integrations.get('treasuryVaultFactoryConfigured') is True, 'A3 treasury vault factory is not configured'
 a4=json.loads((root/'a4-health.json').read_text())
 assert a4.get('mcp',{}).get('service') == 'counteragent-reporting', 'A4 MCP service missing'
 print('health ok')

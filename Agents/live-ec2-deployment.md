@@ -85,6 +85,34 @@ Health check must include:
 {"mcp":{"service":"counteragent-reporting","tools":["publish_report"]}}
 ```
 
+### A3 Execution / Uniswap
+
+A3 must have the Uniswap Trading API key loaded from the local secret store before restart. The source secret lives outside git at `~/.openclaw/secrets/counteragent-uniswap.env` and currently provides `UNISWAP_API_KEY`; never paste or commit the value.
+
+Required env:
+
+```env
+PORT=8791
+BASE_RPC_URL=https://sepolia.base.org
+CHAIN_ID=84532
+EXECUTION_MODE=vault-dry-run
+UNISWAP_QUOTE_MODE=api-first
+UNISWAP_API_URL=https://trade-api.gateway.uniswap.org/v1
+UNISWAP_API_KEY=<from local secret store; never commit>
+UNISWAP_RETRY_COUNT=2
+UNISWAP_TIMEOUT_MS=10000
+TREASURY_VAULT_FACTORY_ADDRESS=0x6FBbFb4F41b2366B10b93bae5D1a1A4aC3c734BA
+UNIVERSAL_ROUTER_ADDRESS_84532=0x492E6456D9528771018DeB9E87ef7750EF184104
+```
+
+Health check must show:
+
+```json
+{"executionMode":"vault-dry-run","quoteMode":"api-first","integrations":{"uniswapApiConfigured":true,"treasuryVaultFactoryConfigured":true}}
+```
+
+If production shows `quoteMode: fallback` or `uniswapApiConfigured: false`, the dashboard/autopilot path will only run fallback dry-runs and will report `uniswap_api_key_not_configured`.
+
 ## Validation
 
 Run:

@@ -180,7 +180,7 @@ export class UniswapTradingApiClient {
       swapper: input.merchantWallet,
       slippageTolerance: slippagePct,
       generatePermitAsTransaction: false,
-      routingPreference: 'CLASSIC',
+      routingPreference: 'BEST_PRICE',
       spreadOptimization: 'EXECUTION',
       urgency: 'normal',
       permitAmount: 'FULL',
