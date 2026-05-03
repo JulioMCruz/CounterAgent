@@ -1268,7 +1268,7 @@ export default function SettingsPage() {
       </main>
 
       <Dialog open={ensOpen} onOpenChange={setEnsOpen}>
-        <DialogContent className="w-[calc(100vw-0.75rem)] max-w-none sm:w-[calc(100vw-2rem)] xl:w-[min(96vw,1760px)] 2xl:w-[min(96vw,1880px)]">
+        <DialogContent className="max-h-[94dvh] w-[calc(100vw-0.5rem)] max-w-none overflow-hidden p-4 sm:w-[calc(100vw-1rem)] sm:p-6 lg:w-[98vw]">
           <DialogHeader className="rounded-2xl border border-border bg-card/80 p-4">
             <DialogTitle>ENS Config</DialogTitle>
             <DialogDescription>
@@ -1285,7 +1285,7 @@ export default function SettingsPage() {
             <SettingsAxlTerminal status={axlQuery.data} phase={ensSaveState} compact />
           </div>
 
-          <div className="grid max-h-[50vh] gap-4 overflow-y-auto py-2 pr-1">
+          <div className="grid max-h-[58vh] gap-4 overflow-y-auto py-2 pr-1 xl:max-h-[60vh]">
             <Card>
               <CardContent className="grid gap-3 px-4 py-4 md:grid-cols-2">
                 <div className="md:col-span-2">
