@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { formatUnits, parseAbi, parseUnits, zeroAddress } from "viem"
 import { usePublicClient, useReadContracts, useWriteContract } from "wagmi"
@@ -120,6 +120,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
   const { ensureChain, isCorrectChain, isSwitching } = useRequiredChain(vaultChain)
   const publicClient = usePublicClient({ chainId: vaultChainId })
   const { writeContractAsync } = useWriteContract()
+  const actionInFlightRef = useRef(false)
   const [depositToken, setDepositToken] = useState<SupportedStablecoin>(defaultDepositTokenForChain(vaultChainId))
   const [depositAmount, setDepositAmount] = useState("25")
   const [busyAction, setBusyAction] = useState<string | null>(null)
@@ -213,11 +214,13 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
   }
 
   async function withTx(label: string, fn: () => Promise<`0x${string}`>) {
-    await ensureChain()
+    if (actionInFlightRef.current) return
+    actionInFlightRef.current = true
     setBusyAction(label)
     setFlowPhase(label === "Create vault" ? "switching" : label === "Configure A3 policy" ? "confirming" : label === "Deposit to vault" ? "mining" : "preparing")
     setMessage(null)
     try {
+      await ensureChain()
       await submitAndWait(label, fn)
       setFlowPhase("success")
       await refresh()
@@ -226,6 +229,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
       setMessage(error instanceof Error ? error.message : `${label} failed`)
     } finally {
       setBusyAction(null)
+      actionInFlightRef.current = false
     }
   }
 
@@ -248,6 +252,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
   }
 
   async function setupVaultFlow() {
+    if (actionInFlightRef.current) return
     if (!address || !factoryAddress || !vaultPlanQuery.data || !selectedToken || parsedDepositAmount <= BigInt(0)) return
     if (!publicClient) {
       setMessage("Public client unavailable for this chain.")
@@ -262,11 +267,12 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
       return
     }
 
-    await ensureChain()
+    actionInFlightRef.current = true
     setBusyAction("Setup vault")
     setFlowPhase("preparing")
     setMessage(null)
     try {
+      await ensureChain()
       let activeVault = vaultAddress
       if (!vaultDeployed || !activeVault) {
         setFlowPhase("confirming")
@@ -353,6 +359,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
       setMessage(error instanceof Error ? error.message : "Vault setup failed")
     } finally {
       setBusyAction(null)
+      actionInFlightRef.current = false
     }
   }
 
@@ -393,12 +400,14 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
   }
 
   async function authorizeLiveSwapTarget() {
+    if (actionInFlightRef.current) return
     if (!selectedToken || !vaultAddress) return
-    await ensureChain()
+    actionInFlightRef.current = true
     setBusyAction("Authorize live swap approval")
     setFlowPhase("confirming")
     setMessage(null)
     try {
+      await ensureChain()
       if (!tokenApprovalTargetAllowed) {
         await submitAndWait("Authorize token approval", () => writeContractAsync({
           address: vaultAddress,
@@ -425,11 +434,14 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
       setMessage(error instanceof Error ? error.message : "Live swap authorization failed")
     } finally {
       setBusyAction(null)
+      actionInFlightRef.current = false
     }
   }
 
   async function runAutonomousCycle() {
+    if (actionInFlightRef.current) return
     if (!address) return
+    actionInFlightRef.current = true
     setBusyAction("Run autonomous A3 cycle")
     setFlowPhase("preparing")
     setMessage(null)
@@ -469,6 +481,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
       setMessage(error instanceof Error ? error.message : "Autonomous cycle failed")
     } finally {
       setBusyAction(null)
+      actionInFlightRef.current = false
     }
   }
 
