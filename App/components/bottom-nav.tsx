@@ -2,11 +2,10 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Home, BarChart3, Bell, Settings } from "lucide-react"
+import { Home, Bell, Settings } from "lucide-react"
 
 const navItems = [
   { href: "/dashboard", label: "Home", icon: Home },
-  { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/alerts", label: "Alerts", icon: Bell },
   { href: "/settings", label: "Settings", icon: Settings },
 ]
