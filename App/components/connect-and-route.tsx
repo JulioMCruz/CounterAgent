@@ -47,6 +47,7 @@ function DynamicConnectAndRoute() {
   const wagmiChainId = useChainId()
   const { switchChainAsync } = useSwitchChain()
   const [routeStatus, setRouteStatus] = useState<"idle" | "checking" | "fallback">("idle")
+  const [routeRequested, setRouteRequested] = useState(false)
   const [networkStatus, setNetworkStatus] = useState<string | null>(null)
   const [networkError, setNetworkError] = useState<string | null>(null)
   const [isSwitchingNetwork, setIsSwitchingNetwork] = useState(false)
@@ -175,7 +176,7 @@ function DynamicConnectAndRoute() {
   }, [address, primaryWallet])
 
   useEffect(() => {
-    if (!address || !connectedToTargetChain) return
+    if (!routeRequested || !address || !connectedToTargetChain) return
 
     let cancelled = false
     setRouteStatus("checking")
@@ -183,6 +184,7 @@ function DynamicConnectAndRoute() {
     resolveSession({ walletAddress: address, chainId: activeChain.id })
       .then((session) => {
         if (cancelled) return
+        setRouteStatus("idle")
         router.push(session.route === "dashboard" ? "/dashboard" : "/onboarding")
       })
       .catch(() => {
@@ -193,10 +195,10 @@ function DynamicConnectAndRoute() {
     return () => {
       cancelled = true
     }
-  }, [address, connectedToTargetChain, router])
+  }, [address, connectedToTargetChain, routeRequested, router])
 
   useEffect(() => {
-    if (!address || routeStatus !== "fallback") return
+    if (!routeRequested || !address || routeStatus !== "fallback") return
     // If the Orchestrator is not reachable yet, fall back to local registry reads.
     if (!merchantRegistryConfigured) {
       router.push("/onboarding")
@@ -204,21 +206,28 @@ function DynamicConnectAndRoute() {
     }
     if (isLoading || registered === undefined) return
     router.push(registered ? "/dashboard" : "/onboarding")
-  }, [address, registered, isLoading, routeStatus, router])
+  }, [address, registered, isLoading, routeRequested, routeStatus, router])
 
   return (
     <div className="flex flex-col items-start gap-2">
       {!address ? (
         <div className="flex flex-col items-start gap-2">
-          <Button type="button" size="lg" onClick={() => setShowAuthFlow(true)} disabled={!sdkHasLoaded}>
+          <Button type="button" size="lg" onClick={() => {
+            setRouteRequested(true)
+            setShowAuthFlow(true)
+          }} disabled={!sdkHasLoaded}>
             {sdkHasLoaded ? "Connect wallet" : "Loading wallet..."}
           </Button>
           <p className="max-w-sm text-xs text-header-foreground/60">
             Wallet connection starts only when you click. No automatic MetaMask prompts on page load.
           </p>
         </div>
-      ) : null}
-      <Dialog open={!!address && !connectedToTargetChain}>
+      ) : (
+        <Button type="button" size="lg" onClick={() => setRouteRequested(true)} disabled={routeStatus === "checking"}>
+          {routeStatus === "checking" ? "Checking registration..." : "Continue to app"}
+        </Button>
+      )}
+      <Dialog open={routeRequested && !!address && !connectedToTargetChain}>
         <DialogContent showCloseButton={false}>
           <DialogHeader>
             <DialogTitle>Switch to {activeChain.name}</DialogTitle>
@@ -244,7 +253,7 @@ function DynamicConnectAndRoute() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {address && !connectedToTargetChain && (
+      {routeRequested && address && !connectedToTargetChain && (
         <div className="mt-3 max-w-sm rounded-2xl border border-primary/30 bg-background p-4 text-foreground shadow-lg">
           <p className="text-sm font-bold">Wrong wallet network</p>
           <p className="mt-1 text-xs text-muted-foreground">
