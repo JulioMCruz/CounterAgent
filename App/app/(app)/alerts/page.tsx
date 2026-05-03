@@ -2,13 +2,13 @@
 
 import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { CheckCircle2, Pause, AlertTriangle, MessageCircle, ArrowRightLeft, FileText } from "lucide-react"
+import { CheckCircle2, Pause, AlertTriangle, MessageCircle, ArrowRightLeft, FileText, RadioTower } from "lucide-react"
 import { AppHeader } from "@/components/app-header"
 import { Card, CardContent } from "@/components/ui/card"
 import { useConnectedWalletAddress } from "@/hooks/use-connected-wallet-address"
-import { fetchDashboardState, type DashboardState } from "@/lib/a0"
+import { fetchAxlStatus, fetchDashboardState, type AxlStatus, type DashboardState } from "@/lib/a0"
 
-const filters = ["All", "Swaps", "Holds", "Anomalies"] as const
+const filters = ["All", "Swaps", "Holds", "AXL", "Anomalies"] as const
 
 type AlertStatus = "Success" | "Hold" | "Review"
 
@@ -21,7 +21,7 @@ interface AlertItem {
   time: string
   timestamp: string
   status: AlertStatus
-  agent: "A2" | "A3" | "A4"
+  agent: "A1" | "A2" | "A3" | "A4" | "AXL"
 }
 
 const statusStyles: Record<AlertStatus, string> = {
@@ -31,9 +31,11 @@ const statusStyles: Record<AlertStatus, string> = {
 }
 
 const agentStyles: Record<AlertItem["agent"], string> = {
+  A1: "bg-secondary text-secondary-foreground",
   A2: "bg-warning/10 text-warning-foreground",
   A3: "bg-success/10 text-success",
   A4: "bg-primary/10 text-primary",
+  AXL: "bg-primary/10 text-primary",
 }
 
 function relativeTime(value: string) {
@@ -47,7 +49,33 @@ function relativeTime(value: string) {
   return new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
 }
 
-function buildAlerts(dashboard?: DashboardState): AlertItem[] {
+function agentForMessage(message: NonNullable<AxlStatus["recentMessages"]>[number]): AlertItem["agent"] {
+  if (message.fromAgent.startsWith("A1-") || message.toAgent.startsWith("A1-")) return "A1"
+  if (message.fromAgent.startsWith("A2-") || message.toAgent.startsWith("A2-")) return "A2"
+  if (message.fromAgent.startsWith("A3-") || message.toAgent.startsWith("A3-")) return "A3"
+  if (message.fromAgent.startsWith("A4-") || message.toAgent.startsWith("A4-")) return "A4"
+  return "AXL"
+}
+
+function buildAxlAlerts(axl?: AxlStatus): AlertItem[] {
+  return (axl?.recentMessages ?? []).slice(0, 20).map((message): AlertItem => {
+    const ok = message.axl?.ok === true
+    const transport = message.axl?.transport ?? message.mode
+    return {
+      icon: RadioTower,
+      iconColor: ok ? "text-primary" : "text-destructive",
+      iconBg: ok ? "bg-primary/10" : "bg-destructive/10",
+      title: `AXL ${message.messageType}`,
+      description: `${message.fromAgent} → ${message.toAgent}\n${transport} · workflow ${message.workflowId}`,
+      time: relativeTime(message.createdAt),
+      timestamp: message.createdAt,
+      status: ok ? "Review" : "Hold",
+      agent: agentForMessage(message),
+    }
+  })
+}
+
+function buildAlerts(dashboard?: DashboardState, axl?: AxlStatus): AlertItem[] {
   const decisionAlerts = (dashboard?.decisions ?? []).map((decision): AlertItem => ({
     icon: decision.action === "CONVERT" ? CheckCircle2 : Pause,
     iconColor: decision.action === "CONVERT" ? "text-success" : "text-warning-foreground",
@@ -84,7 +112,7 @@ function buildAlerts(dashboard?: DashboardState): AlertItem[] {
     agent: "A4",
   }))
 
-  return [...decisionAlerts, ...executionAlerts, ...reportAlerts]
+  return [...buildAxlAlerts(axl), ...decisionAlerts, ...executionAlerts, ...reportAlerts]
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     .slice(0, 20)
 }
@@ -93,7 +121,8 @@ function matchesFilter(alert: AlertItem, filter: string) {
   if (filter === "All") return true
   if (filter === "Swaps") return alert.agent === "A3"
   if (filter === "Holds") return alert.status === "Hold"
-  if (filter === "Anomalies") return alert.status === "Review"
+  if (filter === "AXL") return alert.title.startsWith("AXL ")
+  if (filter === "Anomalies") return alert.status === "Review" && !alert.title.startsWith("AXL ")
   return true
 }
 
@@ -107,8 +136,14 @@ export default function AlertsPage() {
     refetchInterval: 5_000,
     staleTime: 2_000,
   })
+  const axlQuery = useQuery({
+    queryKey: ["axl-status"],
+    queryFn: fetchAxlStatus,
+    refetchInterval: 5_000,
+    staleTime: 2_000,
+  })
 
-  const alerts = useMemo(() => buildAlerts(dashboardQuery.data), [dashboardQuery.data])
+  const alerts = useMemo(() => buildAlerts(dashboardQuery.data, axlQuery.data), [dashboardQuery.data, axlQuery.data])
   const filteredAlerts = alerts.filter((alert) => matchesFilter(alert, filter))
 
   return (
@@ -123,7 +158,7 @@ export default function AlertsPage() {
               </div>
               <div className="flex-1">
                 <p className="text-sm font-bold">Agent Alerts</p>
-                <p className="text-xs text-header-foreground/60">Live Decision, Execution, and Reporting events for the connected merchant</p>
+                <p className="text-xs text-header-foreground/60">Live Decision, Execution, Reporting, and Gensyn AXL message events</p>
               </div>
               <span className="flex items-center gap-1.5 rounded-full bg-success/20 px-2.5 py-1 text-xs font-semibold text-success">
                 <span className="h-1.5 w-1.5 rounded-full bg-success" />
@@ -150,13 +185,13 @@ export default function AlertsPage() {
         <div>
           <p className="mb-3 text-xs font-bold uppercase tracking-widest text-muted-foreground">Recent Live Events</p>
           <div className="flex flex-col gap-2">
-            {!address ? (
+            {!address && !axlQuery.data?.recentMessages?.length ? (
               <Card>
                 <CardContent className="px-4 py-4 text-sm text-muted-foreground">
-                  Connect a registered wallet to see agent alerts.
+                  Connect a registered wallet to see merchant alerts. AXL transport logs appear here as soon as agents exchange messages.
                 </CardContent>
               </Card>
-            ) : dashboardQuery.isLoading ? (
+            ) : dashboardQuery.isLoading && !axlQuery.data ? (
               <Card>
                 <CardContent className="px-4 py-4 text-sm text-muted-foreground">Loading live alerts…</CardContent>
               </Card>
@@ -165,7 +200,7 @@ export default function AlertsPage() {
             ) : (
               <Card>
                 <CardContent className="px-4 py-4 text-sm text-muted-foreground">
-                  No alerts yet. Run a dry-run from Dashboard and agent workflow events will appear here.
+                  No alerts yet. Registration, dashboard lookup, or workflow dry-runs will appear here.
                 </CardContent>
               </Card>
             )}
