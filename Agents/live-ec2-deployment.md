@@ -95,7 +95,7 @@ Required env:
 PORT=8791
 BASE_RPC_URL=https://sepolia.base.org
 CHAIN_ID=84532
-EXECUTION_MODE=vault-dry-run
+EXECUTION_MODE=vault-live
 UNISWAP_QUOTE_MODE=api-first
 UNISWAP_API_URL=https://trade-api.gateway.uniswap.org/v1
 UNISWAP_API_KEY=<from local secret store; never commit>
@@ -103,12 +103,17 @@ UNISWAP_RETRY_COUNT=2
 UNISWAP_TIMEOUT_MS=10000
 TREASURY_VAULT_FACTORY_ADDRESS=0x6FBbFb4F41b2366B10b93bae5D1a1A4aC3c734BA
 UNIVERSAL_ROUTER_ADDRESS_84532=0x492E6456D9528771018DeB9E87ef7750EF184104
+PERMIT2_ADDRESS_84532=0x000000000022D473030F116dDEE9F6B43aC78BA3
+V4_QUOTER_84532=0x4a6513c898fe1b2d0e78d3b0e0a4a151589b1cba
+V4_POOL_FEE=500
+V4_TICK_SPACING=10
+EXECUTOR_PRIVATE_KEY=<A3 execution key from local secret store; never commit>
 ```
 
 Health check must show:
 
 ```json
-{"executionMode":"vault-dry-run","quoteMode":"api-first","integrations":{"uniswapApiConfigured":true,"treasuryVaultFactoryConfigured":true}}
+{"executionMode":"vault-live","quoteMode":"api-first","integrations":{"uniswapApiConfigured":true,"treasuryVaultFactoryConfigured":true,"v4PoolFallbackConfigured":true,"executorConfigured":true}}
 ```
 
 If production shows `quoteMode: fallback` or `uniswapApiConfigured: false`, the dashboard/autopilot path will only run fallback dry-runs and will report `uniswap_api_key_not_configured`.
