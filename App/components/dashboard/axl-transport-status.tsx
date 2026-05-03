@@ -19,7 +19,7 @@ export function AxlTransportStatus() {
   })
 
   const status = statusQuery.data
-  const recent = status?.recentMessages?.slice(0, 3) ?? []
+  const recent = status?.recentMessages?.slice(0, 8) ?? []
   const isTransport = status?.mode === "transport"
   const hasIssue = statusQuery.isError || status?.topologyError
 
@@ -71,19 +71,31 @@ export function AxlTransportStatus() {
         </div>
 
         <div className="rounded-xl border border-border bg-background/60 p-3">
-          <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            <RadioTower className="h-3.5 w-3.5" /> Recent AXL messages
+          <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <RadioTower className="h-3.5 w-3.5" /> Live Gensyn AXL logs
+            </div>
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {status?.recentMessages?.length ?? 0} recent messages · refreshes every 5s
+            </span>
           </div>
           {recent.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No messages yet. Run the workflow dry-run to generate traffic.</p>
+            <p className="text-sm text-muted-foreground">No messages yet. Registration, dashboard lookup, or workflow dry-runs generate traffic.</p>
           ) : (
-            <div className="space-y-2">
+            <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
               {recent.map((message) => (
-                <div key={message.messageId} className="flex flex-col gap-1 rounded-lg bg-card px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between">
-                  <span className="font-medium text-card-foreground">{message.fromAgent} → {message.toAgent}</span>
-                  <span className="text-muted-foreground">{message.messageType}</span>
-                  <span className="flex items-center gap-1 text-muted-foreground">
-                    <ShieldCheck className="h-3 w-3" /> {message.axl?.ok ? message.axl.transport ?? "sent" : message.axl?.error ?? message.mode}
+                <div key={message.messageId} className="grid gap-1 rounded-lg bg-card px-3 py-2 text-xs sm:grid-cols-[1fr_auto] sm:items-center">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="font-semibold text-card-foreground">#{message.sequence}</span>
+                      <span className="font-medium text-card-foreground">{message.fromAgent} → {message.toAgent}</span>
+                      <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary">{message.axl?.transport ?? message.mode}</span>
+                    </div>
+                    <p className="mt-0.5 truncate text-muted-foreground">{message.messageType}</p>
+                    <p className="mt-0.5 truncate text-[10px] text-muted-foreground/70">{message.workflowId}</p>
+                  </div>
+                  <span className={`flex items-center gap-1 text-[11px] font-semibold ${message.axl?.ok ? "text-success" : "text-destructive"}`}>
+                    <ShieldCheck className="h-3 w-3" /> {message.axl?.ok ? "ok" : message.axl?.error ?? "error"}
                   </span>
                 </div>
               ))}
