@@ -1,95 +1,387 @@
 "use client"
 
+import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { KeyRound, ShieldCheck, WalletCards } from "lucide-react"
-import { useChainId } from "wagmi"
+import { formatUnits, parseAbi, parseUnits, zeroAddress } from "viem"
+import { useChainId, usePublicClient, useReadContracts, useWriteContract } from "wagmi"
+import { ArrowRightLeft, Bot, CheckCircle2, KeyRound, Loader2, ShieldCheck, Vault, WalletCards } from "lucide-react"
+import { AgentInteractionFlow } from "@/components/agent-interaction-flow"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useConnectedWalletAddress } from "@/hooks/use-connected-wallet-address"
-import { prepareVaultPlan } from "@/lib/a0"
+import { evaluateWorkflow, prepareVaultPlan, shortenAddress, type SupportedStablecoin, type WorkflowEvaluateResponse } from "@/lib/a0"
 
-function tokenUnitsToDisplay(value?: string, symbol = "USDC") {
-  const amount = Number(value ?? 0) / 1_000_000
-  return `${amount.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${symbol}`
+const factoryAddresses: Record<number, `0x${string}`> = {
+  84532: "0x6FBbFb4F41b2366B10b93bae5D1a1A4aC3c734BA",
+  11142220: "0xaD85EC495f8782fC581C0f06e73e4075A7C077E9",
 }
 
-function defaultOutputForChain(chainId: number) {
-  return chainId === 42220 ? "cUSD" : "USDC"
+const defaultRouterTargets: Record<number, `0x${string}`[]> = {
+  84532: ["0x492E6456D9528771018DeB9E87ef7750EF184104"],
 }
 
-function expiryDate(value?: number) {
-  if (!value) return "Not prepared"
-  return new Date(value * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+const tokenDecimals: Partial<Record<SupportedStablecoin, number>> = {
+  USDC: 6,
+  EURC: 6,
+  USDT: 6,
+  CUSD: 18,
+  CEUR: 18,
+  CELO: 18,
+  cUSD: 18,
+  cEUR: 18,
+  cREAL: 18,
+  cKES: 18,
+  cCOP: 18,
+  cGHS: 18,
 }
 
-export function AutopilotVaultCard() {
+const factoryAbi = parseAbi([
+  "function vaultOf(address merchant) view returns (address)",
+  "function predictedVault(address merchant) view returns (address)",
+  "function createVault(address authorizedAgent,address[] initialTokens,address[] initialTargets) returns (address vault)",
+])
+
+const vaultAbi = parseAbi([
+  "function owner() view returns (address)",
+  "function authorizedAgent() view returns (address)",
+  "function policy() view returns (uint256 maxTradeAmount,uint256 dailyLimit,uint16 maxSlippageBps,uint64 expiresAt,bool active)",
+  "function deposit(address token,uint256 amount)",
+  "function configureAgent(address newAgent,(uint256 maxTradeAmount,uint256 dailyLimit,uint16 maxSlippageBps,uint64 expiresAt,bool active) newPolicy)",
+])
+
+const erc20Abi = parseAbi([
+  "function balanceOf(address account) view returns (uint256)",
+  "function allowance(address owner,address spender) view returns (uint256)",
+  "function approve(address spender,uint256 amount) returns (bool)",
+])
+
+function tokenUnitsToDisplay(value?: string | bigint, symbol = "USDC", decimals = 6, maxDigits = 2) {
+  const amount = typeof value === "bigint" ? Number(formatUnits(value, decimals)) : Number(value ?? 0) / 10 ** decimals
+  return `${amount.toLocaleString(undefined, { maximumFractionDigits: maxDigits })} ${symbol}`
+}
+
+function defaultOutputForChain(chainId: number): SupportedStablecoin {
+  return chainId === 42220 || chainId === 11142220 ? "CUSD" : "USDC"
+}
+
+function defaultDepositTokenForChain(chainId: number): SupportedStablecoin {
+  return chainId === 42220 || chainId === 11142220 ? "CEUR" : "EURC"
+}
+
+function workflowTokenFor(symbol: SupportedStablecoin) {
+  if (symbol === "cUSD") return "CUSD"
+  if (symbol === "cEUR") return "CEUR"
+  return symbol as "USDC" | "EURC" | "USDT" | "CUSD" | "CEUR" | "CELO"
+}
+
+function expiryDate(value?: number | bigint) {
+  const timestamp = typeof value === "bigint" ? Number(value) : value
+  if (!timestamp) return "Not configured"
+  return new Date(timestamp * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+}
+
+function policyFromPlan(plan?: Awaited<ReturnType<typeof prepareVaultPlan>>) {
+  if (!plan?.vault.policy) return undefined
+  const { maxTradeAmount, dailyLimit, maxSlippageBps, expiresAt, active } = plan.vault.policy
+  return {
+    maxTradeAmount: BigInt(maxTradeAmount),
+    dailyLimit: BigInt(dailyLimit),
+    maxSlippageBps,
+    expiresAt: BigInt(expiresAt),
+    active,
+  }
+}
+
+export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }) {
   const { address } = useConnectedWalletAddress()
   const chainId = useChainId()
-  const planQuery = useQuery({
-    queryKey: ["vault-plan", address, chainId],
-    queryFn: () => prepareVaultPlan({ walletAddress: address!, chainId, mode: "moderate", preferredStablecoin: defaultOutputForChain(chainId) }),
+  const publicClient = usePublicClient()
+  const { writeContractAsync } = useWriteContract()
+  const [depositToken, setDepositToken] = useState<SupportedStablecoin>(defaultDepositTokenForChain(chainId))
+  const [depositAmount, setDepositAmount] = useState("25")
+  const [busyAction, setBusyAction] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
+  const [workflow, setWorkflow] = useState<WorkflowEvaluateResponse | null>(null)
+  const [flowPhase, setFlowPhase] = useState<"idle" | "preparing" | "switching" | "confirming" | "mining" | "success" | "error">("idle")
+
+  const factoryAddress = factoryAddresses[chainId]
+  const routerTargets = defaultRouterTargets[chainId] ?? []
+  const preferredStablecoin = defaultOutputForChain(chainId)
+
+  const vaultPlanQuery = useQuery({
+    queryKey: ["vault-plan", address, chainId, preferredStablecoin],
+    queryFn: () => prepareVaultPlan({ walletAddress: address!, chainId, mode: "moderate", preferredStablecoin, targetAllowlist: routerTargets }),
     enabled: Boolean(address),
     staleTime: 60_000,
   })
 
-  const policy = planQuery.data?.vault.policy
-  const preferredStablecoin = planQuery.data?.vault.preferredStablecoin.symbol ?? defaultOutputForChain(chainId)
-  const tokenSymbols = planQuery.data?.vault.tokenAllowlist.map((token) => token.symbol).join(" · ")
+  const policy = vaultPlanQuery.data?.vault.policy
+  const tokenSymbols = vaultPlanQuery.data?.vault.tokenAllowlist.map((token) => token.symbol).join(" · ")
+  const selectedToken = vaultPlanQuery.data?.vault.tokenAllowlist.find((token) => token.symbol === depositToken)
+    ?? vaultPlanQuery.data?.vault.tokenAllowlist.find((token) => token.symbol === defaultDepositTokenForChain(chainId))
+  const selectedDecimals = tokenDecimals[selectedToken?.symbol ?? depositToken] ?? 6
+  const parsedDepositAmount = useMemo(() => {
+    try {
+      return parseUnits(depositAmount || "0", selectedDecimals)
+    } catch {
+      return BigInt(0)
+    }
+  }, [depositAmount, selectedDecimals])
+
+  const chainReads = useReadContracts({
+    allowFailure: true,
+    query: { enabled: Boolean(address && factoryAddress) },
+    contracts: [
+      factoryAddress && address ? { address: factoryAddress, abi: factoryAbi, functionName: "vaultOf", args: [address] } : undefined,
+      factoryAddress && address ? { address: factoryAddress, abi: factoryAbi, functionName: "predictedVault", args: [address] } : undefined,
+    ].filter(Boolean) as any,
+  })
+
+  const chainData = chainReads.data as { status: string; result?: unknown }[] | undefined
+  const deployedVault = chainData?.[0]?.status === "success" ? chainData[0].result as `0x${string}` : undefined
+  const predictedVault = chainData?.[1]?.status === "success" ? chainData[1].result as `0x${string}` : undefined
+  const vaultAddress = deployedVault && deployedVault !== zeroAddress ? deployedVault : predictedVault
+  const vaultDeployed = Boolean(deployedVault && deployedVault !== zeroAddress)
+
+  const vaultReads = useReadContracts({
+    allowFailure: true,
+    query: { enabled: Boolean(address && selectedToken?.address && vaultAddress) },
+    contracts: [
+      selectedToken && address ? { address: selectedToken.address, abi: erc20Abi, functionName: "balanceOf", args: [address] } : undefined,
+      selectedToken && vaultAddress ? { address: selectedToken.address, abi: erc20Abi, functionName: "balanceOf", args: [vaultAddress] } : undefined,
+      selectedToken && address && vaultAddress ? { address: selectedToken.address, abi: erc20Abi, functionName: "allowance", args: [address, vaultAddress] } : undefined,
+      vaultDeployed && vaultAddress ? { address: vaultAddress, abi: vaultAbi, functionName: "authorizedAgent" } : undefined,
+      vaultDeployed && vaultAddress ? { address: vaultAddress, abi: vaultAbi, functionName: "policy" } : undefined,
+    ].filter(Boolean) as any,
+  })
+
+  const vaultData = vaultReads.data as { status: string; result?: unknown }[] | undefined
+  const walletTokenBalance = vaultData?.[0]?.status === "success" ? vaultData[0].result as bigint : BigInt(0)
+  const vaultTokenBalance = vaultData?.[1]?.status === "success" ? vaultData[1].result as bigint : BigInt(0)
+  const currentAllowance = vaultData?.[2]?.status === "success" ? vaultData[2].result as bigint : BigInt(0)
+  const authorizedAgent = vaultData?.[3]?.status === "success" ? vaultData[3].result as `0x${string}` : undefined
+  const onchainPolicy = vaultData?.[4]?.status === "success" ? vaultData[4].result as readonly [bigint, bigint, number, bigint, boolean] : undefined
+  const policyActive = Boolean(onchainPolicy?.[4])
+  const needsApproval = parsedDepositAmount > BigInt(0) && currentAllowance < parsedDepositAmount
+  const readyForAutopilot = Boolean(vaultDeployed && vaultTokenBalance > BigInt(0) && policyActive)
+
+  const refresh = async () => {
+    await Promise.all([vaultPlanQuery.refetch(), chainReads.refetch(), vaultReads.refetch()])
+  }
+
+  async function withTx(label: string, fn: () => Promise<`0x${string}`>) {
+    if (!publicClient) throw new Error("Public client unavailable for this chain.")
+    setBusyAction(label)
+    setFlowPhase(label === "Create vault" ? "switching" : label === "Configure A3 policy" ? "confirming" : label === "Deposit to vault" ? "mining" : "preparing")
+    setMessage(null)
+    try {
+      const hash = await fn()
+      setMessage(`${label} submitted: ${shortenAddress(hash)}`)
+      await publicClient.waitForTransactionReceipt({ hash })
+      setMessage(`${label} confirmed on-chain.`)
+      setFlowPhase("success")
+      await refresh()
+    } catch (error) {
+      setFlowPhase("error")
+      setMessage(error instanceof Error ? error.message : `${label} failed`)
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  async function createVault() {
+    if (!factoryAddress || !vaultPlanQuery.data) return
+    const tokenAddresses = vaultPlanQuery.data.vault.tokenAllowlist.map((token) => token.address)
+    const agent = vaultPlanQuery.data.vault.authorizedAgent
+    if (!agent) {
+      setMessage("A3 executor address is not configured in the vault plan.")
+      return
+    }
+    await withTx("Create vault", () => writeContractAsync({
+      address: factoryAddress,
+      abi: factoryAbi,
+      functionName: "createVault",
+      args: [agent, tokenAddresses, routerTargets],
+    }))
+  }
+
+  async function approveDeposit() {
+    if (!selectedToken || !vaultAddress || parsedDepositAmount <= BigInt(0)) return
+    await withTx("Approve vault deposit", () => writeContractAsync({
+      address: selectedToken.address,
+      abi: erc20Abi,
+      functionName: "approve",
+      args: [vaultAddress, parsedDepositAmount],
+    }))
+  }
+
+  async function depositToVault() {
+    if (!selectedToken || !vaultAddress || parsedDepositAmount <= BigInt(0)) return
+    await withTx("Deposit to vault", () => writeContractAsync({
+      address: vaultAddress,
+      abi: vaultAbi,
+      functionName: "deposit",
+      args: [selectedToken.address, parsedDepositAmount],
+    }))
+  }
+
+  async function configurePolicy() {
+    const agent = vaultPlanQuery.data?.vault.authorizedAgent
+    if (!vaultAddress || !agent) return
+    const nextPolicy = policyFromPlan(vaultPlanQuery.data)
+    if (!nextPolicy) return
+    await withTx("Configure A3 policy", () => writeContractAsync({
+      address: vaultAddress,
+      abi: vaultAbi,
+      functionName: "configureAgent",
+      args: [agent, nextPolicy],
+    }))
+  }
+
+  async function runAutonomousCycle() {
+    if (!address) return
+    setBusyAction("Run autonomous A3 cycle")
+    setFlowPhase("preparing")
+    setMessage(null)
+    setWorkflow(null)
+    try {
+      const response = await evaluateWorkflow({
+        workflowId: `vault-autopilot-${address.slice(2, 10).toLowerCase()}-${Date.now()}`,
+        merchantEns: "vault.counteragents.eth",
+        walletAddress: address,
+        chainId,
+        fromToken: workflowTokenFor(depositToken),
+        toToken: workflowTokenFor(preferredStablecoin),
+        amount: depositAmount,
+        fxThresholdBps: 50,
+        riskTolerance: "moderate",
+        slippageBps: policy?.maxSlippageBps ?? 50,
+        vaultAddress: vaultDeployed ? vaultAddress : undefined,
+        baselineRate: depositToken === "EURC" || depositToken === "CEUR" || depositToken === "cEUR" ? 1.07 : 1,
+        dryRunRate: depositToken === "EURC" || depositToken === "CEUR" || depositToken === "cEUR" ? 1.09 : 1.012,
+        metadata: {
+          source: "dashboard-autopilot-vault",
+          custody: "merchant-owned-vault",
+          noHumanInLoopAfterDeposit: true,
+          vaultAddress,
+          vaultDeployed,
+          policyActive,
+        },
+      })
+      setWorkflow(response)
+      setFlowPhase(response.decision?.decision?.action === "CONVERT" ? "success" : "confirming")
+      setMessage(response.execution?.transactionHash ? `A3 submitted vault execution: ${shortenAddress(response.execution.transactionHash)}` : `A3 completed autonomous cycle: ${response.execution?.status ?? response.status}`)
+      onCompleted?.()
+    } catch (error) {
+      setFlowPhase("error")
+      setMessage(error instanceof Error ? error.message : "Autonomous cycle failed")
+    } finally {
+      setBusyAction(null)
+    }
+  }
 
   return (
     <Card className="border-primary/20 bg-primary/5">
-      <CardHeader className="flex flex-col gap-3 px-5 pb-2 pt-4 sm:flex-row sm:items-start sm:justify-between">
+      <CardHeader className="flex flex-col gap-3 px-5 pb-2 pt-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
-            Autopilot Vault
-          </CardTitle>
-          <p className="mt-1 text-sm text-card-foreground">
-            Merchant-owned execution with revocable limits. A3 executes; A0 prepares policy and never holds keys or funds.
+          <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Autopilot Vault</CardTitle>
+          <p className="mt-1 max-w-3xl text-sm text-card-foreground">
+            Deposit once into a merchant-owned vault, configure bounded A3 policy, then the agent can execute profitable stablecoin trading without another wallet popup.
           </p>
         </div>
-        <Badge variant="outline" className="border-primary/30 bg-background text-primary">
-          Draft
+        <Badge variant="outline" className={readyForAutopilot ? "border-success/30 bg-success/10 text-success" : "border-primary/30 bg-background text-primary"}>
+          {readyForAutopilot ? "Autopilot ready" : "Setup required"}
         </Badge>
       </CardHeader>
-      <CardContent className="grid gap-3 px-5 pb-5 sm:grid-cols-4">
-        <div className="rounded-lg border bg-background/70 p-3">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            <WalletCards className="h-3.5 w-3.5" />
-            Trade cap
+      <CardContent className="space-y-4 px-5 pb-5">
+        <AgentInteractionFlow mode="vault-autopilot" phase={flowPhase} heightClassName="h-[260px] sm:h-[300px]" />
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-lg border bg-background/70 p-3">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground"><WalletCards className="h-3.5 w-3.5" /> Trade cap</div>
+            <p className="mt-2 text-lg font-bold text-card-foreground">{vaultPlanQuery.isLoading ? "Loading..." : tokenUnitsToDisplay(policy?.maxTradeAmount, preferredStablecoin)}</p>
+            <p className="mt-1 text-xs text-muted-foreground">per A3 vault call</p>
           </div>
-          <p className="mt-2 text-lg font-bold text-card-foreground">
-            {planQuery.isLoading ? "Loading..." : tokenUnitsToDisplay(policy?.maxTradeAmount, preferredStablecoin)}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">per agent call</p>
-        </div>
-        <div className="rounded-lg border bg-background/70 p-3">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            Daily limit
+          <div className="rounded-lg border bg-background/70 p-3">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground"><ShieldCheck className="h-3.5 w-3.5" /> Vault balance</div>
+            <p className="mt-2 text-lg font-bold text-card-foreground">{tokenUnitsToDisplay(vaultTokenBalance, selectedToken?.symbol ?? depositToken, selectedDecimals)}</p>
+            <p className="mt-1 text-xs text-muted-foreground">wallet: {tokenUnitsToDisplay(walletTokenBalance, selectedToken?.symbol ?? depositToken, selectedDecimals)}</p>
           </div>
-          <p className="mt-2 text-lg font-bold text-card-foreground">
-            {planQuery.isLoading ? "Loading..." : tokenUnitsToDisplay(policy?.dailyLimit, preferredStablecoin)}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">resets every UTC day</p>
-        </div>
-        <div className="rounded-lg border bg-background/70 p-3">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            <KeyRound className="h-3.5 w-3.5" />
-            Guardrails
+          <div className="rounded-lg border bg-background/70 p-3">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground"><KeyRound className="h-3.5 w-3.5" /> Policy</div>
+            <p className="mt-2 text-lg font-bold text-card-foreground">{policyActive ? "Active" : `${policy?.maxSlippageBps ?? 0} bps`}</p>
+            <p className="mt-1 text-xs text-muted-foreground">expires {expiryDate(onchainPolicy?.[3] ?? policy?.expiresAt)}</p>
           </div>
-          <p className="mt-2 text-lg font-bold text-card-foreground">
-            {planQuery.isLoading ? "Loading..." : `${policy?.maxSlippageBps ?? 0} bps`}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">expires {expiryDate(policy?.expiresAt)}</p>
-        </div>
-        <div className="rounded-lg border bg-background/70 p-3">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            Output rails
+          <div className="rounded-lg border bg-background/70 p-3">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground"><Vault className="h-3.5 w-3.5" /> Vault</div>
+            <p className="mt-2 text-sm font-bold text-card-foreground">{vaultAddress ? shortenAddress(vaultAddress) : "Not resolved"}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{vaultDeployed ? `A3 ${shortenAddress(authorizedAgent)}` : "deterministic address"}</p>
           </div>
-          <p className="mt-2 text-lg font-bold text-card-foreground">{preferredStablecoin}</p>
-          <p className="mt-1 text-xs text-muted-foreground">Allowed: {tokenSymbols ?? "Base + Celo stablecoins"}</p>
         </div>
+
+        <div className="grid gap-3 rounded-xl border border-border bg-background/70 p-3 lg:grid-cols-[1fr_1fr_auto]">
+          <div className="space-y-1">
+            <Label>Deposit token</Label>
+            <Select value={depositToken} onValueChange={(value) => setDepositToken(value as SupportedStablecoin)}>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {(vaultPlanQuery.data?.vault.tokenAllowlist ?? []).map((token) => <SelectItem key={token.symbol} value={token.symbol}>{token.symbol}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="vault-deposit-amount">Amount for demo vault</Label>
+            <Input id="vault-deposit-amount" inputMode="decimal" value={depositAmount} onChange={(event) => setDepositAmount(event.target.value)} />
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <Button type="button" variant="outline" onClick={createVault} disabled={!address || !factoryAddress || vaultDeployed || Boolean(busyAction)}>
+              {busyAction === "Create vault" ? <Loader2 className="animate-spin" /> : <Vault />} Create vault
+            </Button>
+            <Button type="button" variant="outline" onClick={approveDeposit} disabled={!vaultDeployed || !needsApproval || Boolean(busyAction)}>
+              {busyAction === "Approve vault deposit" ? <Loader2 className="animate-spin" /> : <CheckCircle2 />} Approve
+            </Button>
+            <Button type="button" variant="outline" onClick={depositToVault} disabled={!vaultDeployed || needsApproval || parsedDepositAmount <= BigInt(0) || Boolean(busyAction)}>
+              {busyAction === "Deposit to vault" ? <Loader2 className="animate-spin" /> : <WalletCards />} Deposit
+            </Button>
+            <Button type="button" variant="outline" onClick={configurePolicy} disabled={!vaultDeployed || policyActive || Boolean(busyAction)}>
+              {busyAction === "Configure A3 policy" ? <Loader2 className="animate-spin" /> : <ShieldCheck />} Policy
+            </Button>
+            <Button type="button" onClick={runAutonomousCycle} disabled={!address || Boolean(busyAction)}>
+              {busyAction === "Run autonomous A3 cycle" ? <Loader2 className="animate-spin" /> : <Bot />} Run A3 autopilot
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid gap-3 text-xs sm:grid-cols-3">
+          <div className="rounded-lg bg-muted/40 p-3"><span className="font-semibold text-card-foreground">1. Deposit</span><br />Merchant signs vault setup/deposit only once.</div>
+          <div className="rounded-lg bg-muted/40 p-3"><span className="font-semibold text-card-foreground">2. Autonomous policy</span><br />A3 is bounded by max trade, daily limit, slippage, allowed tokens, and allowed targets.</div>
+          <div className="rounded-lg bg-muted/40 p-3"><span className="font-semibold text-card-foreground">3. Profit cycle</span><br />A0→A1→A2→A3→A4 can convert when spread beats threshold; no human confirmation in autopilot mode.</div>
+        </div>
+
+        {message && <p className="rounded-lg border border-border bg-background/70 p-3 text-sm text-muted-foreground">{message}</p>}
+
+        {workflow && (
+          <div className="rounded-xl border border-primary/15 bg-background/80 p-4">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Latest autonomous agent cycle</p>
+                <p className="text-sm font-semibold text-card-foreground">{workflow.decision?.decision?.action ?? "—"} · {workflow.execution?.status ?? workflow.status}</p>
+              </div>
+              <Badge variant="outline" className="bg-primary/10 text-primary"><ArrowRightLeft className="mr-1 h-3 w-3" /> {depositToken} → {preferredStablecoin}</Badge>
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              {workflow.decision?.decision?.reason ?? "A3 completed the vault-aware execution path."}
+              {workflow.execution?.transactionHash ? ` Tx: ${workflow.execution.transactionHash}` : " If backend A3 is in vault-live mode, this same path submits through the vault executor; dry-run modes keep demo funds safe."}
+            </p>
+          </div>
+        )}
+
+        {!factoryAddress && <p className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning-foreground">Vault factory is not configured for chain {chainId}. Switch to Base Sepolia for the demo path.</p>}
+        <p className="text-xs text-muted-foreground">Allowed rails: {tokenSymbols ?? "Base + Celo stablecoins"}. Router targets: {routerTargets.length ? routerTargets.map(shortenAddress).join(" · ") : "configured by backend"}.</p>
       </CardContent>
     </Card>
   )

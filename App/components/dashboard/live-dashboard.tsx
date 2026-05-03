@@ -29,7 +29,7 @@ export function LiveDashboard() {
 
       <AxlTransportStatus />
 
-      <AutopilotVaultCard />
+      <AutopilotVaultCard onCompleted={() => window.setTimeout(() => void dashboardQuery.refetch(), 3_000)} />
 
       <div className="flex flex-col gap-4 lg:grid lg:grid-cols-2 lg:gap-6">
         <TreasuryBalance dashboard={dashboard} isLoading={dashboardQuery.isLoading} />

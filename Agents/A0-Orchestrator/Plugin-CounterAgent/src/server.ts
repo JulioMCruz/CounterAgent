@@ -164,6 +164,7 @@ const workflowSchema = z.object({
   fxThresholdBps: z.number().int().min(0).max(10_000).default(50),
   riskTolerance: riskSchema.default('moderate'),
   slippageBps: z.number().int().min(1).max(1_000).default(50),
+  vaultAddress: z.string().refine(isAddress, 'Invalid vault address').optional(),
   baselineRate: z.number().positive().optional(),
   dryRunRate: z.number().positive().optional(),
   idempotencyKey: z.string().min(8).max(160).optional(),
@@ -184,6 +185,7 @@ const monitorAgentUrl = process.env.MONITOR_AGENT_URL;
 const reportingAgentUrl = process.env.REPORTING_AGENT_URL;
 const decisionAgentUrl = process.env.DECISION_AGENT_URL;
 const executionAgentUrl = process.env.EXECUTION_AGENT_URL;
+const defaultExecutionAgentAddress = '0xDaa23fF7820b92eA5D78457adc41Cab1af97EbbC' as Address;
 const executionAgentAddress = process.env.EXECUTION_AGENT_ADDRESS as Address | undefined;
 const axlMessagingUrl = process.env.GENSYN_AXL_MESSAGING_URL;
 const axlClient = new AxlClient({
@@ -1216,7 +1218,7 @@ app.post('/vault/plan', async (request, reply) => {
   const expiresAt = now + 7 * 24 * 60 * 60;
   const policy = vaultModePolicies[input.mode];
   const targetAllowlist = input.targetAllowlist ?? [];
-  const authorizedAgent = input.authorizedAgent ?? (executionAgentAddress && isAddress(executionAgentAddress) ? executionAgentAddress : undefined);
+  const authorizedAgent = input.authorizedAgent ?? (executionAgentAddress && isAddress(executionAgentAddress) ? executionAgentAddress : defaultExecutionAgentAddress);
 
   return reply.send({
     ok: true,
@@ -1603,6 +1605,7 @@ app.post('/workflow/evaluate', async (request, reply) => {
         dryRunRate: workflow.dryRunRate,
         baselineRate: workflow.baselineRate,
         idempotencyKey: workflow.idempotencyKey,
+        vaultAddress: workflow.vaultAddress,
         quoteId: quote.quote.quoteId,
         decision: {
           action: decision.decision.action,
