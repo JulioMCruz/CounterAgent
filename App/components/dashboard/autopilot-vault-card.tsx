@@ -523,44 +523,46 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
           </div>
         </div>
 
-        <div className="grid gap-3 rounded-xl border border-border bg-background/70 p-3 lg:grid-cols-[1fr_1fr_auto]">
-          <div className="space-y-1">
-            <Label>Deposit token</Label>
-            <Select value={depositToken} onValueChange={(value) => setDepositToken(value as SupportedStablecoin)}>
-              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {(vaultPlanQuery.data?.vault.tokenAllowlist ?? []).map((token) => <SelectItem key={token.symbol} value={token.symbol}>{token.symbol}</SelectItem>)}
-              </SelectContent>
-            </Select>
+        <div className="space-y-3 rounded-xl border border-border bg-background/70 p-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label>Deposit token</Label>
+              <Select value={depositToken} onValueChange={(value) => setDepositToken(value as SupportedStablecoin)}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {(vaultPlanQuery.data?.vault.tokenAllowlist ?? []).map((token) => <SelectItem key={token.symbol} value={token.symbol}>{token.symbol}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="vault-deposit-amount">Amount to deposit</Label>
+              <Input id="vault-deposit-amount" inputMode="decimal" value={depositAmount} onChange={(event) => setDepositAmount(event.target.value)} />
+            </div>
           </div>
-          <div className="space-y-1">
-            <Label htmlFor="vault-deposit-amount">Amount to deposit</Label>
-            <Input id="vault-deposit-amount" inputMode="decimal" value={depositAmount} onChange={(event) => setDepositAmount(event.target.value)} />
-          </div>
-          <div className="flex flex-wrap items-end gap-2">
-            <Button type="button" variant="outline" onClick={createVault} disabled={!address || !factoryAddress || vaultDeployed || isSwitching || Boolean(busyAction)}>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7 [&_button]:w-full">
+            <Button type="button" variant="outline" className="justify-center" onClick={createVault} disabled={!address || !factoryAddress || vaultDeployed || isSwitching || Boolean(busyAction)}>
               {busyAction === "Create vault" ? <Loader2 className="animate-spin" /> : <Vault />} Create only
             </Button>
-            <Button type="button" onClick={setupVaultFlow} disabled={!address || !factoryAddress || !selectedToken || parsedDepositAmount <= BigInt(0) || isSwitching || Boolean(busyAction)}>
+            <Button type="button" className="justify-center sm:col-span-2 lg:col-span-1" onClick={setupVaultFlow} disabled={!address || !factoryAddress || !selectedToken || parsedDepositAmount <= BigInt(0) || isSwitching || Boolean(busyAction)}>
               {busyAction === "Setup vault" ? <Loader2 className="animate-spin" /> : <WalletCards />} Setup vault + deposit
             </Button>
-            <Button type="button" variant="outline" onClick={approveDeposit} disabled={!vaultDeployed || !needsApproval || isSwitching || Boolean(busyAction)}>
+            <Button type="button" variant="outline" className="justify-center" onClick={approveDeposit} disabled={!vaultDeployed || !needsApproval || isSwitching || Boolean(busyAction)}>
               {busyAction === "Approve vault deposit" ? <Loader2 className="animate-spin" /> : <CheckCircle2 />} Approve
             </Button>
-            <Button type="button" variant="outline" onClick={depositToVault} disabled={!vaultDeployed || needsApproval || parsedDepositAmount <= BigInt(0) || isSwitching || Boolean(busyAction)}>
+            <Button type="button" variant="outline" className="justify-center" onClick={depositToVault} disabled={!vaultDeployed || needsApproval || parsedDepositAmount <= BigInt(0) || isSwitching || Boolean(busyAction)}>
               {busyAction === "Deposit to vault" ? <Loader2 className="animate-spin" /> : <WalletCards />} Deposit
             </Button>
-            <Button type="button" variant="outline" onClick={configurePolicy} disabled={!vaultDeployed || policyActive || isSwitching || Boolean(busyAction)}>
+            <Button type="button" variant="outline" className="justify-center" onClick={configurePolicy} disabled={!vaultDeployed || policyActive || isSwitching || Boolean(busyAction)}>
               {busyAction === "Configure A3 policy" ? <Loader2 className="animate-spin" /> : <ShieldCheck />} Policy
             </Button>
-            <Button type="button" variant="outline" onClick={authorizeLiveSwapTarget} disabled={!vaultDeployed || !selectedToken || (tokenApprovalTargetAllowed && permit2TargetAllowed) || isSwitching || Boolean(busyAction)}>
+            <Button type="button" variant="outline" className="justify-center sm:col-span-2 lg:col-span-1" onClick={authorizeLiveSwapTarget} disabled={!vaultDeployed || !selectedToken || (tokenApprovalTargetAllowed && permit2TargetAllowed) || isSwitching || Boolean(busyAction)}>
               {busyAction === "Authorize live swap approval" ? <Loader2 className="animate-spin" /> : <ShieldCheck />} Authorize live swap
             </Button>
-            <Button type="button" onClick={runAutonomousCycle} disabled={!address || !readyForAutopilot || Boolean(busyAction)}>
+            <Button type="button" className="justify-center sm:col-span-2 lg:col-span-1" onClick={runAutonomousCycle} disabled={!address || !readyForAutopilot || Boolean(busyAction)}>
               {busyAction === "Run autonomous A3 cycle" ? <Loader2 className="animate-spin" /> : <Bot />} Run A3 autopilot
             </Button>
             {!readyForAutopilot && address && (
-              <p className="basis-full text-xs text-muted-foreground">Use “Setup vault + deposit” for the guided flow. For existing vaults, “Authorize live swap” enables A3 to approve Permit2 for the selected test token, then Run A3 autopilot can submit the real Base Sepolia Uniswap transaction.</p>
+              <p className="sm:col-span-2 lg:col-span-4 2xl:col-span-7 text-xs text-muted-foreground">Use “Setup vault + deposit” for the guided flow. For existing vaults, “Authorize live swap” enables A3 to approve Permit2 for the selected test token, then Run A3 autopilot can submit the real Base Sepolia Uniswap transaction.</p>
             )}
           </div>
         </div>
