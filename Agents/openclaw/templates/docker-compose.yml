@@ -35,7 +35,7 @@ services:
       - EXECUTION_AGENT_URL=http://uniswap-swap-plugin:8791
       - GENSYN_AXL_MODE=${GENSYN_AXL_MODE:-transport}
       - GENSYN_AXL_NODE_URL=http://axl-a0-transport:8890
-      - GENSYN_AXL_PEER_A1=${AXL_PEER_A1:-}
+      - GENSYN_AXL_PEER_A1=${AXL_PEER_A1:-counteragent-a1}
       - GENSYN_AXL_PEER_A2=${AXL_PEER_A2:-}
       - GENSYN_AXL_PEER_A3=${AXL_PEER_A3:-}
       - GENSYN_AXL_PEER_A4=${AXL_PEER_A4:-}

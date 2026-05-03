@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { DynamicWidget } from "@dynamic-labs/sdk-react-core"
@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Slider } from "@/components/ui/slider"
 import { AgentInteractionFlow } from "@/components/agent-interaction-flow"
 import { SessionHeaderActions } from "@/components/session-header-actions"
-import { prepareOnboarding, startOnboarding, telegramBotStartUrl, telegramBotUsername, type OnboardingPrepareResponse } from "@/lib/a0"
+import { fetchAxlStatus, prepareOnboarding, startOnboarding, telegramBotStartUrl, telegramBotUsername, type AxlStatus, type OnboardingPrepareResponse } from "@/lib/a0"
 import {
   activeChain,
   activeChainSwitchParams,
@@ -69,6 +69,81 @@ const onboardingSteps = [
     icon: Bell,
   },
 ] as const
+
+function AxlTerminalCard({ phase }: { phase: string }) {
+  const [status, setStatus] = useState<AxlStatus | null>(null)
+  const [statusError, setStatusError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let mounted = true
+
+    async function loadStatus() {
+      try {
+        const next = await fetchAxlStatus()
+        if (!mounted) return
+        setStatus(next)
+        setStatusError(null)
+      } catch (error) {
+        if (!mounted) return
+        setStatusError(error instanceof Error ? error.message : "AXL status unavailable")
+      }
+    }
+
+    loadStatus()
+    const timer = window.setInterval(loadStatus, 5_000)
+    return () => {
+      mounted = false
+      window.clearInterval(timer)
+    }
+  }, [])
+
+  const lines = useMemo(() => {
+    const peers = status?.peers ?? {}
+    const recent = status?.recentMessages?.slice(0, 4) ?? []
+    const baseLines = [
+      `$ axl status --live`,
+      `mode=${status?.mode ?? "checking"} fallback=${status?.fallbackToHttp === false ? "off" : "on"} phase=${phase}`,
+      `node=${status?.nodeConfigured ? "ready" : "checking"} adapter=${status?.messagingAdapterConfigured ? "ready" : "checking"}`,
+      `peers A1=${peers.A1 ? "ready" : "pending"} A2=${peers.A2 ? "ready" : "pending"} A3=${peers.A3 ? "ready" : "pending"} A4=${peers.A4 ? "ready" : "pending"}`,
+    ]
+
+    if (statusError) return [...baseLines, `error=${statusError}`]
+    if (recent.length === 0) {
+      return [
+        ...baseLines,
+        "waiting for peer-to-peer workflow traffic...",
+        "A0 ⇄ A2 decision · A0 ⇄ A3 quote · A0 ⇄ A4 report",
+      ]
+    }
+
+    return [
+      ...baseLines,
+      ...recent.map((message) => {
+        const result = message.axl?.ok ? message.axl.transport ?? "sent" : message.axl?.error ?? message.mode
+        return `${message.fromAgent} → ${message.toAgent} ${message.messageType} #${message.sequence} ${result}`
+      }),
+    ]
+  }, [phase, status, statusError])
+
+  return (
+    <div className="rounded-3xl border border-emerald-500/25 bg-slate-950 p-4 text-slate-100 shadow-sm">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-300">Gensyn AXL live trace</p>
+          <p className="mt-1 text-xs text-slate-400">Peer-to-peer agent messages for technical reviewers.</p>
+        </div>
+        <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-[10px] font-black text-emerald-200">
+          {status?.mode ?? "checking"}
+        </span>
+      </div>
+      <div className="rounded-2xl border border-white/10 bg-black/60 p-3 font-mono text-[11px] leading-relaxed text-emerald-100 sm:text-xs">
+        {lines.map((line, index) => (
+          <p key={`${line}-${index}`} className="truncate"><span className="text-emerald-400">›</span> {line}</p>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 function sanitizeMerchantSlug(value: string) {
   return value
@@ -323,11 +398,14 @@ export default function OnboardingPage() {
           </div>
         </div>
 
-        <AgentInteractionFlow
-          mode="treasury-config-update"
-          phase={onboardingFlowPhase}
-          heightClassName="h-[230px] sm:h-[280px] lg:h-[340px]"
-        />
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(340px,0.75fr)] lg:items-stretch">
+          <AgentInteractionFlow
+            mode="treasury-config-update"
+            phase={onboardingFlowPhase}
+            heightClassName="h-[230px] sm:h-[280px] lg:h-[340px]"
+          />
+          <AxlTerminalCard phase={onboardingFlowPhase} />
+        </div>
 
         <div className="rounded-3xl border border-border bg-card px-3 py-4 shadow-sm lg:px-5">
           <div className="flex items-start justify-between gap-1">
@@ -627,18 +705,20 @@ export default function OnboardingPage() {
                   <div className="grid gap-4">
                     <div>
                       <div className="mb-2 flex items-center justify-between gap-3">
-                        <label className="block text-sm font-semibold text-foreground">Telegram Chat ID</label>
+                        <label className="block text-sm font-semibold text-foreground">Telegram contact</label>
                         <a href={telegramConnectUrl} target="_blank" rel="noreferrer" className="text-xs font-bold text-primary underline-offset-4 hover:underline">
                           Connect @{telegramBotUsername.replace(/^@/, "")}
                         </a>
                       </div>
                       <Input
-                        placeholder="numeric chat_id after /start"
+                        placeholder="@username or group chat id"
                         value={telegramChat}
                         onChange={(e) => { setPreparedRegistration(null); setTelegramReviewed(true); setTelegramChat(e.target.value) }}
                         className="bg-secondary"
                       />
-                      <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">Open the bot link, press /start, then store the numeric chat_id for A4 report alerts.</p>
+                      <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                        Use your logged-in Telegram username for personal alerts, or a group chat id when routing team notifications.
+                      </p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
@@ -646,7 +726,7 @@ export default function OnboardingPage() {
                         Review and skip
                       </Button>
                       <Button type="button" variant={telegramReviewed && telegramChat ? "default" : "outline"} onClick={() => setTelegramReviewed(true)} disabled={!telegramChat} className="rounded-xl">
-                        Use Telegram alerts
+                        Use this Telegram contact
                       </Button>
                     </div>
 
