@@ -156,6 +156,11 @@ const erc20AllowanceAbi = parseAbi([
   'function approve(address spender,uint256 amount) returns (bool)'
 ]);
 
+const permit2Abi = parseAbi([
+  'function allowance(address owner,address token,address spender) view returns (uint160 amount,uint48 expiration,uint48 nonce)',
+  'function approve(address token,address spender,uint160 amount,uint48 expiration)'
+]);
+
 type CounterAgentQuote = {
   quoteId: string;
   provider: QuoteSource;
@@ -849,14 +854,20 @@ async function executeViaVault(input: z.infer<typeof executeSchema>) {
       functionName: 'allowedTarget',
       args: [quote.tokenIn]
     });
-    if (!tokenApprovalTargetAllowed) {
+    const permit2TargetAllowed = await publicClient.readContract({
+      address: vaultAddress,
+      abi: treasuryVaultAbi,
+      functionName: 'allowedTarget',
+      args: [permit2Address as Address]
+    });
+    if (!tokenApprovalTargetAllowed || !permit2TargetAllowed) {
       return {
         ok: false,
-        error: 'vault_token_approval_target_not_allowed',
+        error: !tokenApprovalTargetAllowed ? 'vault_token_approval_target_not_allowed' : 'vault_permit2_target_not_allowed',
         vault,
         quote,
-        requiredTarget: quote.tokenIn,
-        message: 'The vault must allow the input token as a temporary target so A3 can approve Permit2 before the Base Sepolia Uniswap v4 swap.'
+        requiredTarget: !tokenApprovalTargetAllowed ? quote.tokenIn : permit2Address,
+        message: 'The vault must allow the input token and Permit2 as temporary targets so A3 can prepare the Base Sepolia Uniswap v4 swap.'
       };
     }
 
@@ -888,6 +899,38 @@ async function executeViaVault(input: z.infer<typeof executeSchema>) {
         ]
       });
       await publicClient.waitForTransactionReceipt({ hash: approvalTransactionHash });
+    }
+
+    const [permit2RouterAllowance] = await publicClient.readContract({
+      address: permit2Address as Address,
+      abi: permit2Abi,
+      functionName: 'allowance',
+      args: [vaultAddress, quote.tokenIn, routerCall.target]
+    });
+    if (permit2RouterAllowance < BigInt(quote.amountInRaw)) {
+      const expiration = Number(process.env.PERMIT2_ALLOWANCE_EXPIRATION ?? Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60);
+      const approveRouterCalldata = encodeFunctionData({
+        abi: permit2Abi,
+        functionName: 'approve',
+        args: [quote.tokenIn, routerCall.target, BigInt(quote.amountInRaw), expiration]
+      });
+      const permit2ApprovalHash = await walletClient.writeContract({
+        address: vaultAddress,
+        abi: treasuryVaultAbi,
+        functionName: 'executeCall',
+        args: [
+          permit2Address as Address,
+          quote.tokenIn,
+          quote.tokenOut,
+          BigInt(quote.amountInRaw),
+          0n,
+          0n,
+          quote.slippageBps,
+          approveRouterCalldata
+        ]
+      });
+      await publicClient.waitForTransactionReceipt({ hash: permit2ApprovalHash });
+      approvalTransactionHash = permit2ApprovalHash;
     }
   }
 
