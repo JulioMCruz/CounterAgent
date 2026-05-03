@@ -23,7 +23,7 @@ export type CounterAgentAxlEnvelope = {
 export type AxlSendResult = {
   ok: boolean;
   mode: AxlMode;
-  transport: 'disabled' | 'axl-send';
+  transport: 'disabled' | 'axl-send' | 'axl-observed';
   peerId?: string;
   sentBytes?: number;
   error?: string;

@@ -593,16 +593,28 @@ async function emitAxlMessage(input: {
 
   let axl: AxlSendResult | undefined;
   if (axlClient.enabled) {
-    const peerId = axlClient.peerForAgent(input.toAgent);
-    try {
-      axl = await axlClient.send(peerId, envelope);
-    } catch (error) {
+    const shouldSendFromA0 = input.fromAgent === 'A0-Orchestrator';
+
+    if (shouldSendFromA0) {
+      const peerId = axlClient.peerForAgent(input.toAgent);
+      try {
+        axl = await axlClient.send(peerId, envelope);
+      } catch (error) {
+        axl = {
+          ok: false,
+          mode: axlClient.mode,
+          transport: 'axl-send',
+          peerId,
+          error: error instanceof Error ? error.message : 'axl_send_failed'
+        };
+      }
+    } else {
       axl = {
-        ok: false,
+        ok: true,
         mode: axlClient.mode,
-        transport: 'axl-send',
-        peerId,
-        error: error instanceof Error ? error.message : 'axl_send_failed'
+        transport: 'axl-observed',
+        peerId: 'A0-Orchestrator',
+        sentBytes: 0
       };
     }
   }
