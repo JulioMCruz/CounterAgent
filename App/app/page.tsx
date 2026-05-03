@@ -16,9 +16,9 @@ export default function LandingPage() {
           <Link href="/onboarding" prefetch={false} className="text-sm font-medium text-header-foreground/70 hover:text-header-foreground">
             For Merchants
           </Link>
-          <Button asChild size="sm" className="rounded-full">
+          {/* <Button asChild size="sm" className="rounded-full">
             <Link href="#connect-wallet" prefetch={false}>Connect wallet</Link>
-          </Button>
+          </Button> */}
         </div>
       </header>
 
