@@ -181,17 +181,23 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
     await Promise.all([vaultPlanQuery.refetch(), chainReads.refetch(), vaultReads.refetch()])
   }
 
-  async function withTx(label: string, fn: () => Promise<`0x${string}`>) {
+  async function submitAndWait(label: string, fn: () => Promise<`0x${string}`>) {
     if (!publicClient) throw new Error("Public client unavailable for this chain.")
+    setMessage(`${label}: waiting for wallet confirmation…`)
+    const hash = await fn()
+    setMessage(`${label} submitted: ${shortenAddress(hash)}`)
+    await publicClient.waitForTransactionReceipt({ hash })
+    setMessage(`${label} confirmed on-chain.`)
+    return hash
+  }
+
+  async function withTx(label: string, fn: () => Promise<`0x${string}`>) {
     await ensureChain()
     setBusyAction(label)
     setFlowPhase(label === "Create vault" ? "switching" : label === "Configure A3 policy" ? "confirming" : label === "Deposit to vault" ? "mining" : "preparing")
     setMessage(null)
     try {
-      const hash = await fn()
-      setMessage(`${label} submitted: ${shortenAddress(hash)}`)
-      await publicClient.waitForTransactionReceipt({ hash })
-      setMessage(`${label} confirmed on-chain.`)
+      await submitAndWait(label, fn)
       setFlowPhase("success")
       await refresh()
     } catch (error) {
@@ -217,6 +223,88 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
       args: [agent, tokenAddresses, routerTargets],
       chainId: vaultChainId,
     }))
+  }
+
+  async function setupVaultFlow() {
+    if (!address || !factoryAddress || !vaultPlanQuery.data || !selectedToken || parsedDepositAmount <= BigInt(0)) return
+    if (!publicClient) {
+      setMessage("Public client unavailable for this chain.")
+      return
+    }
+    const tokenAddresses = vaultPlanQuery.data.vault.tokenAllowlist.map((token) => token.address)
+    const agent = vaultPlanQuery.data.vault.authorizedAgent
+    const nextPolicy = policyFromPlan(vaultPlanQuery.data)
+    if (!agent || !nextPolicy) {
+      setMessage("A3 executor policy is not configured in the vault plan.")
+      return
+    }
+
+    await ensureChain()
+    setBusyAction("Setup vault")
+    setFlowPhase("preparing")
+    setMessage(null)
+    try {
+      let activeVault = vaultAddress
+      if (!vaultDeployed || !activeVault) {
+        setFlowPhase("confirming")
+        await submitAndWait("Create vault", () => writeContractAsync({
+          address: factoryAddress,
+          abi: factoryAbi,
+          functionName: "createVault",
+          args: [agent, tokenAddresses, routerTargets],
+          chainId: vaultChainId,
+        }))
+        activeVault = await publicClient.readContract({ address: factoryAddress, abi: factoryAbi, functionName: "vaultOf", args: [address] }) as `0x${string}`
+      }
+
+      const walletBalanceNow = await publicClient.readContract({ address: selectedToken.address, abi: erc20Abi, functionName: "balanceOf", args: [address] }) as bigint
+      if (walletBalanceNow < parsedDepositAmount) {
+        throw new Error(`Insufficient ${selectedToken.symbol} balance for ${depositAmount} deposit.`)
+      }
+
+      const allowanceNow = await publicClient.readContract({ address: selectedToken.address, abi: erc20Abi, functionName: "allowance", args: [address, activeVault] }) as bigint
+      if (allowanceNow < parsedDepositAmount) {
+        setFlowPhase("confirming")
+        await submitAndWait("Approve vault deposit", () => writeContractAsync({
+          address: selectedToken.address,
+          abi: erc20Abi,
+          functionName: "approve",
+          args: [activeVault, parsedDepositAmount],
+          chainId: vaultChainId,
+        }))
+      }
+
+      setFlowPhase("mining")
+      await submitAndWait("Deposit to vault", () => writeContractAsync({
+        address: activeVault,
+        abi: vaultAbi,
+        functionName: "deposit",
+        args: [selectedToken.address, parsedDepositAmount],
+        chainId: vaultChainId,
+      }))
+
+      const policyNow = await publicClient.readContract({ address: activeVault, abi: vaultAbi, functionName: "policy" }) as readonly unknown[]
+      if (!Boolean(policyNow?.[4])) {
+        setFlowPhase("confirming")
+        await submitAndWait("Configure A3 policy", () => writeContractAsync({
+          address: activeVault,
+          abi: vaultAbi,
+          functionName: "configureAgent",
+          args: [agent, nextPolicy],
+          chainId: vaultChainId,
+        }))
+      }
+
+      setFlowPhase("success")
+      setMessage("Vault setup complete: vault created, deposit received, and A3 policy active.")
+      await refresh()
+      onCompleted?.()
+    } catch (error) {
+      setFlowPhase("error")
+      setMessage(error instanceof Error ? error.message : "Vault setup failed")
+    } finally {
+      setBusyAction(null)
+    }
   }
 
   async function approveDeposit() {
@@ -363,7 +451,10 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <Button type="button" variant="outline" onClick={createVault} disabled={!address || !factoryAddress || vaultDeployed || isSwitching || Boolean(busyAction)}>
-              {busyAction === "Create vault" ? <Loader2 className="animate-spin" /> : <Vault />} Create vault
+              {busyAction === "Create vault" ? <Loader2 className="animate-spin" /> : <Vault />} Create only
+            </Button>
+            <Button type="button" onClick={setupVaultFlow} disabled={!address || !factoryAddress || !selectedToken || parsedDepositAmount <= BigInt(0) || isSwitching || Boolean(busyAction)}>
+              {busyAction === "Setup vault" ? <Loader2 className="animate-spin" /> : <WalletCards />} Setup vault + deposit
             </Button>
             <Button type="button" variant="outline" onClick={approveDeposit} disabled={!vaultDeployed || !needsApproval || isSwitching || Boolean(busyAction)}>
               {busyAction === "Approve vault deposit" ? <Loader2 className="animate-spin" /> : <CheckCircle2 />} Approve
@@ -378,7 +469,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
               {busyAction === "Run autonomous A3 cycle" ? <Loader2 className="animate-spin" /> : <Bot />} Run A3 autopilot
             </Button>
             {!readyForAutopilot && address && (
-              <p className="basis-full text-xs text-muted-foreground">Run unlocks after vault creation, token deposit, and active A3 policy.</p>
+              <p className="basis-full text-xs text-muted-foreground">Use “Setup vault + deposit” for the guided multi-signature flow. It will prompt for create, approve, deposit, and policy as needed.</p>
             )}
           </div>
         </div>
