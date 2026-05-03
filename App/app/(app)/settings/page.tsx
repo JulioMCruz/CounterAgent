@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
 import type { LucideIcon } from "lucide-react"
 import { useAccount, useChainId, usePublicClient, useWriteContract } from "wagmi"
 import { sepolia } from "wagmi/chains"
@@ -23,6 +24,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import {
   ensNameFromMerchant,
+  fetchAxlStatus,
   formatBpsAsPercent,
   prepareEnsProfileRecords,
   resolveSession,
@@ -32,6 +34,7 @@ import {
   telegramBotStartUrl,
   telegramBotUsername,
   telegramDisplayFromMerchant,
+  type AxlStatus,
   type ResolvedMerchantConfig,
   uploadEnsProfileImage,
 } from "@/lib/a0"
@@ -54,13 +57,14 @@ import {
   MessageCircle,
   AlertTriangle,
   CalendarDays,
-  ChevronRight,
   Image as ImageIcon,
   Link2,
   Plus,
   Trash2,
   UploadCloud,
   X,
+  Terminal,
+  CheckCircle2,
 } from "lucide-react"
 
 type ConfigRow = {
@@ -233,6 +237,105 @@ async function cropImageFileForEns(file: File, field: EnsImageField) {
   })
 }
 
+
+type AxlMessage = NonNullable<AxlStatus["recentMessages"]>[number]
+
+function agentShortName(name?: string) {
+  if (!name) return "AXL"
+  if (name.startsWith("A0-")) return "A0"
+  if (name.startsWith("A1-")) return "A1"
+  if (name.startsWith("A2-")) return "A2"
+  if (name.startsWith("A3-")) return "A3"
+  if (name.startsWith("A4-")) return "A4"
+  return name.split("-")[0] || name
+}
+
+function SettingsAxlTerminal({
+  status,
+  phase,
+  draft,
+  compact = false,
+}: {
+  status?: AxlStatus
+  phase?: "idle" | "preparing" | "switching" | "confirming" | "mining" | "success" | "error"
+  draft?: {
+    fxThresholdBps: number
+    riskTolerance: RiskToleranceLabel
+    preferredStablecoin: keyof typeof stablecoinAddresses
+  }
+  compact?: boolean
+}) {
+  const recent = (status?.recentMessages ?? []).slice(0, compact ? 5 : 8)
+  const phaseLines = useMemo(() => {
+    const lines: { label: string; text: string; tone?: "ok" | "warn" | "error" }[] = [
+      { label: "A0", text: "settings.session.resolve → load registered treasury config", tone: "ok" },
+      { label: "A1", text: "lookup_merchant_config over Gensyn AXL", tone: "ok" },
+    ]
+    if (draft) {
+      lines.push({
+        label: "A0",
+        text: `draft.update fx=${draft.fxThresholdBps}bps risk=${draft.riskTolerance} stable=${draft.preferredStablecoin}`,
+        tone: phase === "error" ? "error" : phase && phase !== "idle" ? "warn" : undefined,
+      })
+    }
+    if (phase === "switching") lines.push({ label: "WALLET", text: "switch network requested for MerchantRegistry.update", tone: "warn" })
+    if (phase === "confirming") lines.push({ label: "WALLET", text: "waiting for merchant signature", tone: "warn" })
+    if (phase === "mining") lines.push({ label: "REG", text: "transaction submitted; registry confirmation pending", tone: "warn" })
+    if (phase === "success") lines.push({ label: "A4", text: "settings update confirmed; report/audit context ready", tone: "ok" })
+    if (phase === "error") lines.push({ label: "ERR", text: "settings update failed; no config mutation completed", tone: "error" })
+    return lines
+  }, [draft, phase])
+
+  const lineClass = (tone?: "ok" | "warn" | "error") =>
+    tone === "error" ? "text-destructive" : tone === "warn" ? "text-warning-foreground" : tone === "ok" ? "text-success" : "text-header-foreground/70"
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-border bg-header-bg text-header-foreground shadow-sm">
+      <div className="flex items-center justify-between gap-3 border-b border-header-foreground/10 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/20 text-primary">
+            <Terminal className="h-4 w-4" />
+          </div>
+          <div>
+            <p className="text-sm font-black">Gensyn AXL terminal</p>
+            <p className="text-[11px] text-header-foreground/55">P2P agent messages for settings and treasury config</p>
+          </div>
+        </div>
+        <span className="rounded-full bg-primary/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-primary">
+          {status?.mode ?? "checking"}
+        </span>
+      </div>
+      <div className={`${compact ? "max-h-56" : "max-h-72"} overflow-y-auto px-4 py-3 font-mono text-[11px] leading-relaxed`}>
+        <div className="mb-2 grid gap-1">
+          {phaseLines.map((line, index) => (
+            <div key={`${line.label}-${index}`} className="grid grid-cols-[3.5rem_1fr] gap-2">
+              <span className="text-header-foreground/35">[{line.label}]</span>
+              <span className={lineClass(line.tone)}>{line.text}</span>
+            </div>
+          ))}
+        </div>
+        <div className="border-t border-header-foreground/10 pt-2">
+          {recent.length === 0 ? (
+            <div className="grid grid-cols-[3.5rem_1fr] gap-2">
+              <span className="text-header-foreground/35">[AXL]</span>
+              <span className="text-header-foreground/55">waiting for live transport messages…</span>
+            </div>
+          ) : (
+            recent.map((message: AxlMessage) => (
+              <div key={message.messageId} className="grid grid-cols-[3.5rem_1fr] gap-2 py-0.5">
+                <span className="text-header-foreground/35">[{message.sequence}]</span>
+                <span className={message.axl?.ok ? "text-header-foreground/75" : "text-destructive"}>
+                  {agentShortName(message.fromAgent)}→{agentShortName(message.toAgent)} {message.messageType} · {message.axl?.transport ?? message.mode} · {message.axl?.ok ? "ok" : message.axl?.error ?? "error"}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function riskLabelForForm(value?: number | string | null): RiskToleranceLabel {
   const risk = typeof value === "number" ? value : Number(value)
   if (risk === 0) return "Conservative"
@@ -280,6 +383,12 @@ export default function SettingsPage() {
   const [saveState, setSaveState] = useState<"idle" | "preparing" | "switching" | "confirming" | "mining" | "success" | "error">("idle")
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
   const [lastTxHash, setLastTxHash] = useState<`0x${string}` | null>(null)
+  const axlQuery = useQuery({
+    queryKey: ["settings-axl-status"],
+    queryFn: fetchAxlStatus,
+    refetchInterval: 5_000,
+    staleTime: 2_000,
+  })
 
   const loadSession = useCallback(() => {
     if (!address) {
@@ -830,6 +939,11 @@ export default function SettingsPage() {
 
   const merchantEnsName = ensNameFromMerchant(merchant)
   const merchantEnsRecordsUrl = ensAppRecordsUrl(merchantEnsName)
+  const draftSummary = {
+    fxThresholdBps: Math.round(fxThreshold[0] * 100),
+    riskTolerance,
+    preferredStablecoin,
+  }
 
   return (
     <div>
@@ -851,72 +965,108 @@ export default function SettingsPage() {
           </Card>
         ) : null}
 
-        <Card className="border-0 bg-header-bg text-header-foreground">
-          <CardContent className="flex items-center gap-3 px-4 py-4 lg:px-6">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/20">
-              <Wallet className="h-5 w-5 text-primary" />
+        <Card className="overflow-hidden border-0 bg-header-bg text-header-foreground">
+          <CardContent className="px-4 py-4 lg:px-6">
+            <div className="flex items-start gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/20">
+                <Wallet className="h-5 w-5 text-primary" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-base font-black lg:text-lg">Treasury Settings</p>
+                  <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${walletStatusClass}`}>
+                    {walletStatus}
+                  </span>
+                </div>
+                <p className="mt-1 font-mono text-xs text-header-foreground/60">
+                  {shortenAddress(address)} &middot; {networkName}
+                </p>
+                <p className="mt-2 max-w-2xl text-xs leading-relaxed text-header-foreground/60">
+                  Edit treasury guardrails, register the updated values on-chain, and watch A0-A4 coordinate through Gensyn AXL.
+                </p>
+              </div>
+              <Button size="sm" className="hidden rounded-full sm:inline-flex" disabled={!registered} onClick={openEditDialog}>
+                Edit treasury
+              </Button>
             </div>
-            <div className="flex-1">
-              <p className="text-sm font-bold lg:text-base">Merchant Wallet</p>
-              <p className="font-mono text-xs text-header-foreground/60">
-                {shortenAddress(address)} &middot; {networkName}
-              </p>
-            </div>
-            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${walletStatusClass}`}>
-              {walletStatus}
-            </span>
           </CardContent>
         </Card>
 
-        <div className="flex flex-col gap-4 lg:grid lg:grid-cols-2 lg:gap-6">
-          <div>
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Treasury Config</p>
-              <div className="flex items-center gap-2">
-                {isConnected && treasuryChainGuard.status !== "ready" ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void treasuryChainGuard.ensureChain()}
-                    disabled={treasuryChainGuard.isSwitching}
-                  >
-                    {treasuryChainGuard.isSwitching ? "Switching..." : `Switch to ${activeChain.name}`}
+        <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[1.05fr_0.95fr] lg:gap-6">
+          <div className="flex flex-col gap-4">
+            <div>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Registered Treasury Config</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Current values loaded from MerchantRegistry and ENS Monitor Agent.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isConnected && treasuryChainGuard.status !== "ready" ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void treasuryChainGuard.ensureChain()}
+                      disabled={treasuryChainGuard.isSwitching}
+                    >
+                      {treasuryChainGuard.isSwitching ? "Switching..." : `Switch to ${activeChain.name}`}
+                    </Button>
+                  ) : null}
+                  <Button size="sm" variant="outline" disabled={!registered} onClick={openEditDialog}>
+                    Edit config
                   </Button>
-                ) : null}
-                <Button size="sm" variant="outline" disabled={!registered} onClick={openEditDialog}>
-                  Edit config
-                </Button>
+                </div>
               </div>
+              <Card className="overflow-hidden">
+                <CardContent className="grid gap-0 px-0 py-0 sm:grid-cols-2">
+                  {treasuryConfig.map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      onClick={() => {
+                        if (!item.editable || !registered) return
+                        if (item.label === "ENS Config") openEnsDialog()
+                        else openEditDialog()
+                      }}
+                      className="flex items-center gap-3 border-b border-border px-4 py-4 text-left transition-colors hover:bg-secondary/50 disabled:cursor-not-allowed sm:border-r lg:px-5"
+                    >
+                      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${item.bg}`}>
+                        <item.icon className={`h-4 w-4 ${item.color}`} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-black text-card-foreground">{item.label}</p>
+                        <p className="truncate text-xs text-muted-foreground">{item.value}</p>
+                      </div>
+                      {item.editable ? <span className="text-[11px] font-bold text-primary">{item.label === "ENS Config" ? "Manage" : "Edit"}</span> : null}
+                    </button>
+                  ))}
+                </CardContent>
+              </Card>
             </div>
-            <Card>
-              <CardContent className="flex flex-col divide-y divide-border px-0 py-0">
-                {treasuryConfig.map((item) => (
-                  <button
-                    key={item.label}
-                    type="button"
-                    onClick={() => {
-                      if (!item.editable || !registered) return
-                      if (item.label === "ENS Config") openEnsDialog()
-                      else openEditDialog()
-                    }}
-                    className="flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-secondary/50 disabled:cursor-not-allowed lg:px-5"
-                  >
-                    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${item.bg}`}>
-                      <item.icon className={`h-4 w-4 ${item.color}`} />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-semibold text-card-foreground">{item.label}</p>
-                      <p className="text-xs text-muted-foreground">{item.value}</p>
-                    </div>
-                    {item.editable ? <span className="text-xs font-medium text-primary">{item.label === "ENS Config" ? "Manage" : "Edit"}</span> : null}
-                    <ChevronRight className="h-4 w-4 text-muted-foreground/50" />
-                  </button>
-                ))}
+
+            <Card className="border-primary/30 bg-primary/5">
+              <CardContent className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-primary" />
+                    <p className="text-sm font-black text-foreground">Config updates are registered</p>
+                  </div>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    Saving calls <span className="font-mono">MerchantRegistry.update</span>, waits for confirmation, then refreshes Settings from A0/A1.
+                  </p>
+                </div>
+                <Button className="rounded-full" disabled={!registered} onClick={openEditDialog}>Update values</Button>
               </CardContent>
             </Card>
+
+            <AgentInteractionFlow
+              mode="treasury-config-update"
+              phase={saveState}
+              heightClassName="h-[230px] sm:h-[260px]"
+            />
           </div>
 
           <div className="flex flex-col gap-4 lg:gap-6">
+            <SettingsAxlTerminal status={axlQuery.data} phase={saveState} draft={draftSummary} />
             <div>
               <p className="mb-2 text-xs font-bold uppercase tracking-widest text-muted-foreground">Notifications</p>
               <Card>
@@ -1169,12 +1319,14 @@ export default function SettingsPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <AgentInteractionFlow
-            mode="treasury-config-update"
-            phase={saveState}
-            heightClassName="h-[240px] sm:h-[270px]"
-            className="mb-2"
-          />
+          <div className="grid gap-3 lg:grid-cols-[1.15fr_0.85fr]">
+            <AgentInteractionFlow
+              mode="treasury-config-update"
+              phase={saveState}
+              heightClassName="h-[240px] sm:h-[270px]"
+            />
+            <SettingsAxlTerminal status={axlQuery.data} phase={saveState} draft={draftSummary} compact />
+          </div>
 
           <div className="grid gap-4 py-2">
             <Card>
