@@ -40,36 +40,45 @@ const agentEnsIdentities = [
 
 export function AgentEnsMesh() {
   return (
-    <section className="rounded-3xl border border-border/70 bg-card/95 p-5 shadow-sm">
-      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+    <section className="rounded-3xl border border-border/70 bg-card/95 p-4 shadow-sm">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.22em] text-primary">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-primary">
             <BadgeCheck className="h-4 w-4" /> ENS Agent Identity Mesh
           </div>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight">Role names, wallets, capabilities, and proofs resolve from ENS.</h2>
-          <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-            CounterAgent uses ENS as a live service registry, not just labels. Each role gets its own subname, wallet address,
-            capability record, endpoint pointer, and audit metadata so agents can discover and verify each other without a central table.
+          <h2 className="mt-1 text-xl font-semibold tracking-tight">ENS-resolved agent roles, wallets, capabilities, and proofs.</h2>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">
+            Compact identity cards keep the dashboard dense; hover or focus a role to reveal its service record and proof.
           </p>
         </div>
-        <div className="rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-primary">
+        <div className="w-fit rounded-2xl border border-primary/20 bg-primary/10 px-3 py-2 text-xs text-primary">
           <div className="font-semibold">Merchant record</div>
-          <div className="font-mono text-xs">counteragent.agent_mesh</div>
+          <div className="font-mono text-[11px]">counteragent.agent_mesh</div>
         </div>
       </div>
 
-      <div className="mt-5 grid gap-3 md:grid-cols-5">
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
         {agentEnsIdentities.map((agent) => {
           const Icon = agent.icon
           return (
-            <div key={agent.ens} className="rounded-2xl border border-border bg-background/70 p-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                <Icon className="h-5 w-5" />
+            <div
+              key={agent.ens}
+              tabIndex={0}
+              className="group relative h-28 rounded-2xl border border-border bg-background/70 p-3 outline-none transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg focus-visible:-translate-y-0.5 focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/20"
+            >
+              <div className="flex items-start gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <Icon className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold leading-tight">{agent.role}</div>
+                  <div className="mt-1 truncate font-mono text-[11px] text-primary">{agent.ens}</div>
+                </div>
               </div>
-              <div className="mt-3 text-sm font-semibold">{agent.role}</div>
-              <div className="mt-1 break-all font-mono text-xs text-primary">{agent.ens}</div>
-              <div className="mt-2 rounded-full bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground">{agent.service}</div>
-              <p className="mt-3 text-xs leading-5 text-muted-foreground">{agent.proof}</p>
+              <div className="pointer-events-none absolute inset-x-2 top-[calc(100%-0.5rem)] z-20 rounded-2xl border border-primary/20 bg-background/95 p-3 opacity-0 shadow-xl backdrop-blur transition-all duration-200 group-hover:pointer-events-auto group-hover:translate-y-1 group-hover:opacity-100 group-focus-visible:pointer-events-auto group-focus-visible:translate-y-1 group-focus-visible:opacity-100">
+                <div className="rounded-full bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground">{agent.service}</div>
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">{agent.proof}</p>
+              </div>
             </div>
           )
         })}
