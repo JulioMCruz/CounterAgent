@@ -467,6 +467,9 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
     }
   }
 
+  const latestSwapTxHash = workflow?.execution?.transactionHash
+  const latestSwapTxUrl = baseScanTxUrl(vaultChainId, latestSwapTxHash)
+
   return (
     <Card className="border-primary/20 bg-primary/5">
       <CardHeader className="flex flex-col gap-3 px-5 pb-2 pt-4 lg:flex-row lg:items-start lg:justify-between">
@@ -563,7 +566,16 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
           <div className="rounded-lg bg-muted/40 p-3"><span className="font-semibold text-card-foreground">3. Vault cycle</span><br />A0→A1→A2→A3→A4 evaluates the vault path; A3 submits a Base Sepolia Uniswap tx when router calldata and approval are ready.</div>
         </div>
 
-        {message && <p className="rounded-lg border border-border bg-background/70 p-3 text-sm text-muted-foreground">{message}</p>}
+        {message && (
+          <div className="rounded-lg border border-border bg-background/70 p-3 text-sm text-muted-foreground">
+            <p>{message}</p>
+            {latestSwapTxHash && latestSwapTxUrl && (
+              <a className="mt-2 inline-flex font-semibold text-primary underline-offset-4 hover:underline" href={latestSwapTxUrl} target="_blank" rel="noreferrer">
+                Open swap transaction on BaseScan Sepolia ({shortenAddress(latestSwapTxHash)})
+              </a>
+            )}
+          </div>
+        )}
 
         {workflow && (
           <div className="rounded-xl border border-primary/15 bg-background/80 p-4">
@@ -576,11 +588,11 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
             </div>
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
               {workflow.decision?.decision?.reason ?? "A3 completed the vault-aware execution path."}
-              {workflow.execution?.transactionHash ? ` Tx: ${workflow.execution.transactionHash}` : " Current A3 mode validates the merchant vault and executeCall envelope without submitting a swap transaction unless live router calldata is available."}
+              {workflow.execution?.transactionHash ? " Swap transaction submitted on Base Sepolia." : " Current A3 mode validates the merchant vault and executeCall envelope without submitting a swap transaction unless live router calldata is available."}
             </p>
-            {workflow.execution?.transactionHash && (
-              <a className="mt-2 inline-flex text-xs font-semibold text-primary underline-offset-4 hover:underline" href={baseScanTxUrl(vaultChainId, workflow.execution.transactionHash)} target="_blank" rel="noreferrer">
-                View real swap transaction on BaseScan
+            {latestSwapTxHash && latestSwapTxUrl && (
+              <a className="mt-2 inline-flex text-xs font-semibold text-primary underline-offset-4 hover:underline" href={latestSwapTxUrl} target="_blank" rel="noreferrer">
+                View real swap transaction on BaseScan Sepolia ({shortenAddress(latestSwapTxHash)})
               </a>
             )}
           </div>
