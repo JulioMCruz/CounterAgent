@@ -46,7 +46,7 @@ export default function LandingPage() {
           <div className="mt-10 lg:mt-14">
             <p className="mb-3 text-xs font-medium uppercase tracking-widest text-header-foreground/40">Powered by</p>
             <div className="flex flex-wrap items-center gap-3">
-              {["Base", "ENS", "Uniswap", "KeeperHub", "OG"].map((name) => (
+              {["Base", "ENS", "Uniswap"].map((name) => (
                 <span key={name} className="rounded-full bg-header-foreground/10 px-3 py-1.5 text-xs font-medium text-header-foreground/70">
                   {name}
                 </span>
