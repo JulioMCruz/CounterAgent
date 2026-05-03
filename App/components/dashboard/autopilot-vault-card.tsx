@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query"
 import { formatUnits, parseAbi, parseUnits, zeroAddress } from "viem"
 import { useChainId, usePublicClient, useReadContracts, useWriteContract } from "wagmi"
 import { ArrowRightLeft, Bot, CheckCircle2, KeyRound, Loader2, ShieldCheck, Vault, WalletCards } from "lucide-react"
+import { AgentInteractionFlow } from "@/components/agent-interaction-flow"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -105,6 +106,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [workflow, setWorkflow] = useState<WorkflowEvaluateResponse | null>(null)
+  const [flowPhase, setFlowPhase] = useState<"idle" | "preparing" | "switching" | "confirming" | "mining" | "success" | "error">("idle")
 
   const factoryAddress = factoryAddresses[chainId]
   const routerTargets = defaultRouterTargets[chainId] ?? []
@@ -174,14 +176,17 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
   async function withTx(label: string, fn: () => Promise<`0x${string}`>) {
     if (!publicClient) throw new Error("Public client unavailable for this chain.")
     setBusyAction(label)
+    setFlowPhase(label === "Create vault" ? "switching" : label === "Configure A3 policy" ? "confirming" : label === "Deposit to vault" ? "mining" : "preparing")
     setMessage(null)
     try {
       const hash = await fn()
       setMessage(`${label} submitted: ${shortenAddress(hash)}`)
       await publicClient.waitForTransactionReceipt({ hash })
       setMessage(`${label} confirmed on-chain.`)
+      setFlowPhase("success")
       await refresh()
     } catch (error) {
+      setFlowPhase("error")
       setMessage(error instanceof Error ? error.message : `${label} failed`)
     } finally {
       setBusyAction(null)
@@ -240,6 +245,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
   async function runAutonomousCycle() {
     if (!address) return
     setBusyAction("Run autonomous A3 cycle")
+    setFlowPhase("preparing")
     setMessage(null)
     setWorkflow(null)
     try {
@@ -267,9 +273,11 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
         },
       })
       setWorkflow(response)
+      setFlowPhase(response.decision?.decision?.action === "CONVERT" ? "success" : "confirming")
       setMessage(response.execution?.transactionHash ? `A3 submitted vault execution: ${shortenAddress(response.execution.transactionHash)}` : `A3 completed autonomous cycle: ${response.execution?.status ?? response.status}`)
       onCompleted?.()
     } catch (error) {
+      setFlowPhase("error")
       setMessage(error instanceof Error ? error.message : "Autonomous cycle failed")
     } finally {
       setBusyAction(null)
@@ -290,6 +298,8 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
         </Badge>
       </CardHeader>
       <CardContent className="space-y-4 px-5 pb-5">
+        <AgentInteractionFlow mode="vault-autopilot" phase={flowPhase} heightClassName="h-[260px] sm:h-[300px]" />
+
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-lg border bg-background/70 p-3">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground"><WalletCards className="h-3.5 w-3.5" /> Trade cap</div>

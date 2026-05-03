@@ -4,7 +4,7 @@ import { memo, useMemo } from "react"
 import { Background, Handle, Position, ReactFlow, type Edge, type Node, type NodeProps } from "@xyflow/react"
 import { Bot, CheckCircle2, CircleDashed, Database, FileText, KeyRound, Link2, PlugZap, ShieldCheck, Wallet } from "lucide-react"
 
-type FlowMode = "ens-profile-update" | "treasury-config-update"
+type FlowMode = "ens-profile-update" | "treasury-config-update" | "vault-autopilot"
 type FlowPhase = "idle" | "preparing" | "switching" | "confirming" | "mining" | "success" | "error"
 
 type AgentNodeData = {
@@ -85,6 +85,13 @@ const phaseIndex = (phase: FlowPhase, mode: FlowMode) => {
     if (phase === "switching") return 2
     if (phase === "confirming") return 3
     if (phase === "mining") return 4
+    return -1
+  }
+  if (mode === "vault-autopilot") {
+    if (phase === "preparing") return 0
+    if (phase === "switching") return 1
+    if (phase === "confirming") return 2
+    if (phase === "mining") return 3
     return -1
   }
   if (phase === "preparing") return 0
@@ -175,6 +182,80 @@ const buildEnsFlow = (phase: FlowPhase) => {
   return { nodes, edges }
 }
 
+const buildVaultAutopilotFlow = (phase: FlowPhase) => {
+  const active = phaseIndex(phase, "vault-autopilot")
+  const nodes: Node<AgentNodeData>[] = [
+    {
+      id: "vault",
+      type: "agent",
+      position: { x: 0, y: 55 },
+      data: {
+        label: "Merchant Vault",
+        role: "Holds deposited USDC",
+        plugins: ["CounterAgentTreasuryVault"],
+        status: statusFor(0, active, phase),
+        icon: "security",
+      },
+    },
+    {
+      id: "monitor",
+      type: "agent",
+      position: { x: 285, y: 55 },
+      data: {
+        label: "A1 Monitor",
+        role: "Reads ENS + balances",
+        plugins: ["Gensyn AXL"],
+        status: statusFor(1, active, phase),
+        icon: "ens",
+      },
+    },
+    {
+      id: "decision",
+      type: "agent",
+      position: { x: 570, y: 55 },
+      data: {
+        label: "A2 Decision",
+        role: "Scores Uniswap spread",
+        plugins: ["Policy guardrails"],
+        status: statusFor(2, active, phase),
+        icon: "bot",
+      },
+    },
+    {
+      id: "execution",
+      type: "agent",
+      position: { x: 855, y: 0 },
+      data: {
+        label: "A3 Execution",
+        role: "Vault-bounded swap",
+        plugins: ["Uniswap"],
+        status: statusFor(3, active, phase),
+        icon: "wallet",
+      },
+    },
+    {
+      id: "reporting",
+      type: "agent",
+      position: { x: 855, y: 145 },
+      data: {
+        label: "A4 Reporting",
+        role: "Alerts + audit trail",
+        plugins: ["Alerts"],
+        status: statusFor(4, active, phase),
+        icon: "report",
+      },
+    },
+  ]
+  const live = phase !== "idle"
+  const edges: Edge[] = [
+    { id: "e1", source: "vault", target: "monitor", animated: live, type: "smoothstep", label: "balance" },
+    { id: "e2", source: "monitor", target: "decision", animated: live, type: "smoothstep", label: "route + policy" },
+    { id: "e3", source: "decision", target: "execution", animated: live, type: "smoothstep", label: "CONVERT" },
+    { id: "e4", source: "execution", target: "reporting", animated: live, type: "smoothstep", label: "result" },
+  ]
+  return { nodes, edges }
+}
+
 const buildTreasuryFlow = (phase: FlowPhase) => {
   const active = phaseIndex(phase, "treasury-config-update")
   const nodes: Node<AgentNodeData>[] = [
@@ -246,9 +327,17 @@ export function AgentInteractionFlow({
   className?: string
   heightClassName?: string
 }) {
-  const { nodes, edges } = useMemo(() => (mode === "ens-profile-update" ? buildEnsFlow(phase) : buildTreasuryFlow(phase)), [mode, phase])
-  const title = mode === "ens-profile-update" ? "Agent interaction: ENS profile update" : "Agent interaction: treasury config update"
-  const subtitle = mode === "ens-profile-update" ? "Shows how media, plugins, wallet signatures, and ENS records coordinate." : "Shows how the agent system prepares, signs, stores, and reports treasury config updates."
+  const { nodes, edges } = useMemo(() => {
+    if (mode === "ens-profile-update") return buildEnsFlow(phase)
+    if (mode === "vault-autopilot") return buildVaultAutopilotFlow(phase)
+    return buildTreasuryFlow(phase)
+  }, [mode, phase])
+  const title = mode === "ens-profile-update" ? "Agent interaction: ENS profile update" : mode === "vault-autopilot" ? "Agent interaction: autonomous vault trading" : "Agent interaction: treasury config update"
+  const subtitle = mode === "ens-profile-update"
+    ? "Shows how media, plugins, wallet signatures, and ENS records coordinate."
+    : mode === "vault-autopilot"
+      ? "Shows deposit-to-vault funds moving through AXL monitor, decision, Uniswap execution, and Alerts reporting."
+      : "Shows how the agent system prepares, signs, stores, and reports treasury config updates."
 
   return (
     <div className={`overflow-hidden rounded-2xl border border-border bg-background/95 shadow-sm ${className}`}>

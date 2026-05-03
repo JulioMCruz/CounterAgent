@@ -185,6 +185,7 @@ const monitorAgentUrl = process.env.MONITOR_AGENT_URL;
 const reportingAgentUrl = process.env.REPORTING_AGENT_URL;
 const decisionAgentUrl = process.env.DECISION_AGENT_URL;
 const executionAgentUrl = process.env.EXECUTION_AGENT_URL;
+const defaultExecutionAgentAddress = '0xDaa23fF7820b92eA5D78457adc41Cab1af97EbbC' as Address;
 const executionAgentAddress = process.env.EXECUTION_AGENT_ADDRESS as Address | undefined;
 const axlMessagingUrl = process.env.GENSYN_AXL_MESSAGING_URL;
 const axlClient = new AxlClient({
@@ -1217,7 +1218,7 @@ app.post('/vault/plan', async (request, reply) => {
   const expiresAt = now + 7 * 24 * 60 * 60;
   const policy = vaultModePolicies[input.mode];
   const targetAllowlist = input.targetAllowlist ?? [];
-  const authorizedAgent = input.authorizedAgent ?? (executionAgentAddress && isAddress(executionAgentAddress) ? executionAgentAddress : undefined);
+  const authorizedAgent = input.authorizedAgent ?? (executionAgentAddress && isAddress(executionAgentAddress) ? executionAgentAddress : defaultExecutionAgentAddress);
 
   return reply.send({
     ok: true,
