@@ -197,7 +197,8 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
   const permit2TargetAllowed = vaultData?.[6]?.status === "success" ? Boolean(vaultData[6].result) : false
   const policyActive = Boolean(onchainPolicy?.[4])
   const needsApproval = parsedDepositAmount > BigInt(0) && currentAllowance < parsedDepositAmount
-  const readyForAutopilot = Boolean(vaultDeployed && vaultTokenBalance > BigInt(0) && policyActive && tokenApprovalTargetAllowed && permit2TargetAllowed)
+  const autopilotAmountAvailable = parsedDepositAmount > BigInt(0) && vaultTokenBalance >= parsedDepositAmount
+  const readyForAutopilot = Boolean(vaultDeployed && autopilotAmountAvailable && policyActive && tokenApprovalTargetAllowed && permit2TargetAllowed)
 
   const refresh = async () => {
     await Promise.all([vaultPlanQuery.refetch(), chainReads.refetch(), vaultReads.refetch()])
@@ -441,6 +442,11 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
   async function runAutonomousCycle() {
     if (actionInFlightRef.current) return
     if (!address) return
+    if (!autopilotAmountAvailable) {
+      setFlowPhase("error")
+      setMessage(`Vault has ${tokenUnitsToDisplay(vaultTokenBalance, selectedToken?.symbol ?? depositToken, selectedDecimals)} available. Lower the autopilot amount or deposit more before running A3.`)
+      return
+    }
     actionInFlightRef.current = true
     setBusyAction("Run autonomous A3 cycle")
     setFlowPhase("preparing")
@@ -575,7 +581,11 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
               {busyAction === "Run autonomous A3 cycle" ? <Loader2 className="animate-spin" /> : <Bot />} Run A3 autopilot
             </Button>
             {!readyForAutopilot && address && (
-              <p className="sm:col-span-2 lg:col-span-4 2xl:col-span-7 text-xs text-muted-foreground">Use “Setup vault + deposit” for the guided flow. For existing vaults, “Authorize live swap” enables A3 to approve Permit2 for the selected test token, then Run A3 autopilot can submit the real Base Sepolia Uniswap transaction.</p>
+              <p className="sm:col-span-2 lg:col-span-4 2xl:col-span-7 text-xs text-muted-foreground">
+                {!autopilotAmountAvailable && vaultDeployed
+                  ? `Vault has ${tokenUnitsToDisplay(vaultTokenBalance, selectedToken?.symbol ?? depositToken, selectedDecimals)}. Lower the amount or deposit more before running A3.`
+                  : "Use “Setup vault + deposit” for the guided flow. For existing vaults, “Authorize live swap” enables A3 to approve Permit2 for the selected test token, then Run A3 autopilot can submit the real Base Sepolia Uniswap transaction."}
+              </p>
             )}
           </div>
         </div>

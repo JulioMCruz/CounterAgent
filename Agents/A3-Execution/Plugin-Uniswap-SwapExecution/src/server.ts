@@ -152,6 +152,7 @@ const universalRouterAbi = parseAbi([
 ]);
 
 const erc20AllowanceAbi = parseAbi([
+  'function balanceOf(address account) view returns (uint256)',
   'function allowance(address owner,address spender) view returns (uint256)',
   'function approve(address spender,uint256 amount) returns (bool)'
 ]);
@@ -838,6 +839,24 @@ async function executeViaVault(input: z.infer<typeof executeSchema>) {
   if (!vault.deployed) return { ok: false, error: 'vault_not_deployed', vault };
   if (!executorConfigured || !process.env.EXECUTOR_PRIVATE_KEY) return { ok: false, error: 'executor_not_configured', vault };
   if (!routerCall.target || !routerCall.calldata) return { ok: false, error: routerCallError ?? 'router_calldata_not_ready', vault, quote };
+
+  const vaultInputBalance = await publicClient.readContract({
+    address: quote.tokenIn,
+    abi: erc20AllowanceAbi,
+    functionName: 'balanceOf',
+    args: [vaultAddress]
+  });
+  if (vaultInputBalance < BigInt(quote.amountInRaw)) {
+    return {
+      ok: false,
+      error: 'insufficient_vault_balance',
+      vault,
+      quote,
+      availableAmountRaw: vaultInputBalance.toString(),
+      requestedAmountRaw: quote.amountInRaw,
+      message: 'The merchant vault does not hold enough input token for the requested A3 autopilot swap.'
+    };
+  }
 
   const account = privateKeyToAccount(process.env.EXECUTOR_PRIVATE_KEY as Hex);
   const walletClient = createWalletClient({
