@@ -168,6 +168,7 @@ export type WorkflowEvaluateRequest = {
   fxThresholdBps?: number
   riskTolerance?: "conservative" | "moderate" | "aggressive" | "Conservative" | "Moderate" | "Aggressive"
   slippageBps?: number
+  vaultAddress?: `0x${string}`
   baselineRate?: number
   dryRunRate?: number
   idempotencyKey?: string
@@ -247,6 +248,9 @@ export type WorkflowEvaluateResponse = {
     ok?: boolean
     status?: string
     transactionHash?: string | null
+    vault?: unknown
+    executeCall?: unknown
+    routerCall?: unknown
     [key: string]: unknown
   }
   report?: ReportPointer | null

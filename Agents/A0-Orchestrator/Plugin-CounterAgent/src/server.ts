@@ -164,6 +164,7 @@ const workflowSchema = z.object({
   fxThresholdBps: z.number().int().min(0).max(10_000).default(50),
   riskTolerance: riskSchema.default('moderate'),
   slippageBps: z.number().int().min(1).max(1_000).default(50),
+  vaultAddress: z.string().refine(isAddress, 'Invalid vault address').optional(),
   baselineRate: z.number().positive().optional(),
   dryRunRate: z.number().positive().optional(),
   idempotencyKey: z.string().min(8).max(160).optional(),
@@ -1603,6 +1604,7 @@ app.post('/workflow/evaluate', async (request, reply) => {
         dryRunRate: workflow.dryRunRate,
         baselineRate: workflow.baselineRate,
         idempotencyKey: workflow.idempotencyKey,
+        vaultAddress: workflow.vaultAddress,
         quoteId: quote.quote.quoteId,
         decision: {
           action: decision.decision.action,

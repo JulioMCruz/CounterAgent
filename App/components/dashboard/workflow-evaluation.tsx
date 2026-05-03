@@ -45,6 +45,7 @@ export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }
   const [fromToken, setFromToken] = useState<TokenSymbol>("USDC")
   const [toToken, setToToken] = useState<TokenSymbol>("EURC")
   const [baselineRate, setBaselineRate] = useState("0.93")
+  const [dryRunRate, setDryRunRate] = useState("0.95")
   const [fxThresholdBps, setFxThresholdBps] = useState("50")
   const [riskTolerance, setRiskTolerance] = useState<RiskTolerance>("moderate")
 
@@ -53,6 +54,7 @@ export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }
     setFromToken("EURC")
     setToToken("USDC")
     setBaselineRate("1.07")
+    setDryRunRate("1.09")
     setFxThresholdBps("50")
     setRiskTolerance("moderate")
     setResult(null)
@@ -73,6 +75,7 @@ export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }
     const parsedAmount = Number(amount.replace(/,/g, ""))
     const parsedBaselineRate = Number(baselineRate)
     const parsedThreshold = Number(fxThresholdBps)
+    const parsedDryRunRate = Number(dryRunRate)
 
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
       setError("Enter a positive amount.")
@@ -80,6 +83,10 @@ export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }
     }
     if (!Number.isFinite(parsedBaselineRate) || parsedBaselineRate <= 0) {
       setError("Enter a positive baseline/oracle rate.")
+      return
+    }
+    if (!Number.isFinite(parsedDryRunRate) || parsedDryRunRate <= 0) {
+      setError("Enter a positive live route rate.")
       return
     }
     if (!Number.isInteger(parsedThreshold) || parsedThreshold < 0 || parsedThreshold > 10_000) {
@@ -102,6 +109,7 @@ export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }
         fxThresholdBps: parsedThreshold,
         riskTolerance,
         baselineRate: parsedBaselineRate,
+        dryRunRate: parsedDryRunRate,
         metadata: {
           source: "dashboard",
           mode: "dry-run",
@@ -179,6 +187,10 @@ export function WorkflowEvaluation({ onCompleted }: { onCompleted?: () => void }
           <div className="space-y-1">
             <Label htmlFor="workflow-baseline">Oracle rate</Label>
             <Input id="workflow-baseline" inputMode="decimal" value={baselineRate} onChange={(event) => setBaselineRate(event.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="workflow-live-rate">Live route</Label>
+            <Input id="workflow-live-rate" inputMode="decimal" value={dryRunRate} onChange={(event) => setDryRunRate(event.target.value)} />
           </div>
           <div className="space-y-1">
             <Label htmlFor="workflow-threshold">Threshold bps</Label>
