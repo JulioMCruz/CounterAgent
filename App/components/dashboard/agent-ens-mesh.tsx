@@ -1,4 +1,6 @@
-import { BadgeCheck, BrainCircuit, Coins, FileCheck2, Network, Radar } from "lucide-react"
+import { BadgeCheck, BrainCircuit, Coins, ExternalLink, FileCheck2, Network, Radar } from "lucide-react"
+
+const ensRecordUrl = (name: string) => `https://sepolia.app.ens.domains/${name}?tab=records`
 
 const agentEnsIdentities = [
   {
@@ -72,12 +74,28 @@ export function AgentEnsMesh() {
                 </div>
                 <div className="min-w-0">
                   <div className="text-sm font-semibold leading-tight">{agent.role}</div>
-                  <div className="mt-1 truncate font-mono text-[11px] text-primary">{agent.ens}</div>
+                  <a
+                    href={ensRecordUrl(agent.ens)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-1 inline-flex max-w-full items-center gap-1 truncate font-mono text-[11px] text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                  >
+                    <span className="truncate">{agent.ens}</span>
+                    <ExternalLink className="h-3 w-3 shrink-0" />
+                  </a>
                 </div>
               </div>
               <div className="pointer-events-none absolute inset-x-2 top-[calc(100%-0.5rem)] z-20 rounded-2xl border border-primary/20 bg-background/95 p-3 opacity-0 shadow-xl backdrop-blur transition-all duration-200 group-hover:pointer-events-auto group-hover:translate-y-1 group-hover:opacity-100 group-focus-visible:pointer-events-auto group-focus-visible:translate-y-1 group-focus-visible:opacity-100">
                 <div className="rounded-full bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground">{agent.service}</div>
                 <p className="mt-2 text-xs leading-5 text-muted-foreground">{agent.proof}</p>
+                <a
+                  href={ensRecordUrl(agent.ens)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                >
+                  View ENS records <ExternalLink className="h-3 w-3" />
+                </a>
               </div>
             </div>
           )
