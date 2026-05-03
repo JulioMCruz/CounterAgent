@@ -1,9 +1,10 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { formatUnits, parseAbi, parseUnits, zeroAddress } from "viem"
-import { useChainId, usePublicClient, useReadContracts, useWriteContract } from "wagmi"
+import { usePublicClient, useReadContracts, useWriteContract } from "wagmi"
+import { baseSepolia } from "wagmi/chains"
 import { ArrowRightLeft, Bot, CheckCircle2, KeyRound, Loader2, ShieldCheck, Vault, WalletCards } from "lucide-react"
 import { AgentInteractionFlow } from "@/components/agent-interaction-flow"
 import { Badge } from "@/components/ui/badge"
@@ -13,6 +14,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useConnectedWalletAddress } from "@/hooks/use-connected-wallet-address"
+import { useRequiredChain } from "@/hooks/use-required-chain"
 import { evaluateWorkflow, prepareVaultPlan, shortenAddress, type SupportedStablecoin, type WorkflowEvaluateResponse } from "@/lib/a0"
 
 const factoryAddresses: Record<number, `0x${string}`> = {
@@ -98,23 +100,29 @@ function policyFromPlan(plan?: Awaited<ReturnType<typeof prepareVaultPlan>>) {
 
 export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }) {
   const { address } = useConnectedWalletAddress()
-  const chainId = useChainId()
-  const publicClient = usePublicClient()
+  const vaultChain = baseSepolia
+  const vaultChainId = vaultChain.id
+  const { ensureChain, isCorrectChain, isSwitching } = useRequiredChain(vaultChain)
+  const publicClient = usePublicClient({ chainId: vaultChainId })
   const { writeContractAsync } = useWriteContract()
-  const [depositToken, setDepositToken] = useState<SupportedStablecoin>(defaultDepositTokenForChain(chainId))
+  const [depositToken, setDepositToken] = useState<SupportedStablecoin>(defaultDepositTokenForChain(vaultChainId))
   const [depositAmount, setDepositAmount] = useState("25")
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [workflow, setWorkflow] = useState<WorkflowEvaluateResponse | null>(null)
   const [flowPhase, setFlowPhase] = useState<"idle" | "preparing" | "switching" | "confirming" | "mining" | "success" | "error">("idle")
 
-  const factoryAddress = factoryAddresses[chainId]
-  const routerTargets = defaultRouterTargets[chainId] ?? []
-  const preferredStablecoin = defaultOutputForChain(chainId)
+  const factoryAddress = factoryAddresses[vaultChainId]
+  const routerTargets = defaultRouterTargets[vaultChainId] ?? []
+  const preferredStablecoin = defaultOutputForChain(vaultChainId)
+
+  useEffect(() => {
+    setDepositToken(defaultDepositTokenForChain(vaultChainId))
+  }, [vaultChainId])
 
   const vaultPlanQuery = useQuery({
-    queryKey: ["vault-plan", address, chainId, preferredStablecoin],
-    queryFn: () => prepareVaultPlan({ walletAddress: address!, chainId, mode: "moderate", preferredStablecoin, targetAllowlist: routerTargets }),
+    queryKey: ["vault-plan", address, vaultChainId, preferredStablecoin],
+    queryFn: () => prepareVaultPlan({ walletAddress: address!, chainId: vaultChainId, mode: "moderate", preferredStablecoin, targetAllowlist: routerTargets }),
     enabled: Boolean(address),
     staleTime: 60_000,
   })
@@ -122,7 +130,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
   const policy = vaultPlanQuery.data?.vault.policy
   const tokenSymbols = vaultPlanQuery.data?.vault.tokenAllowlist.map((token) => token.symbol).join(" · ")
   const selectedToken = vaultPlanQuery.data?.vault.tokenAllowlist.find((token) => token.symbol === depositToken)
-    ?? vaultPlanQuery.data?.vault.tokenAllowlist.find((token) => token.symbol === defaultDepositTokenForChain(chainId))
+    ?? vaultPlanQuery.data?.vault.tokenAllowlist.find((token) => token.symbol === defaultDepositTokenForChain(vaultChainId))
   const selectedDecimals = tokenDecimals[selectedToken?.symbol ?? depositToken] ?? 6
   const parsedDepositAmount = useMemo(() => {
     try {
@@ -136,8 +144,8 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
     allowFailure: true,
     query: { enabled: Boolean(address && factoryAddress) },
     contracts: [
-      factoryAddress && address ? { address: factoryAddress, abi: factoryAbi, functionName: "vaultOf", args: [address] } : undefined,
-      factoryAddress && address ? { address: factoryAddress, abi: factoryAbi, functionName: "predictedVault", args: [address] } : undefined,
+      factoryAddress && address ? { address: factoryAddress, abi: factoryAbi, functionName: "vaultOf", args: [address], chainId: vaultChainId } : undefined,
+      factoryAddress && address ? { address: factoryAddress, abi: factoryAbi, functionName: "predictedVault", args: [address], chainId: vaultChainId } : undefined,
     ].filter(Boolean) as any,
   })
 
@@ -151,11 +159,11 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
     allowFailure: true,
     query: { enabled: Boolean(address && selectedToken?.address && vaultAddress) },
     contracts: [
-      selectedToken && address ? { address: selectedToken.address, abi: erc20Abi, functionName: "balanceOf", args: [address] } : undefined,
-      selectedToken && vaultAddress ? { address: selectedToken.address, abi: erc20Abi, functionName: "balanceOf", args: [vaultAddress] } : undefined,
-      selectedToken && address && vaultAddress ? { address: selectedToken.address, abi: erc20Abi, functionName: "allowance", args: [address, vaultAddress] } : undefined,
-      vaultDeployed && vaultAddress ? { address: vaultAddress, abi: vaultAbi, functionName: "authorizedAgent" } : undefined,
-      vaultDeployed && vaultAddress ? { address: vaultAddress, abi: vaultAbi, functionName: "policy" } : undefined,
+      selectedToken && address ? { address: selectedToken.address, abi: erc20Abi, functionName: "balanceOf", args: [address], chainId: vaultChainId } : undefined,
+      selectedToken && vaultAddress ? { address: selectedToken.address, abi: erc20Abi, functionName: "balanceOf", args: [vaultAddress], chainId: vaultChainId } : undefined,
+      selectedToken && address && vaultAddress ? { address: selectedToken.address, abi: erc20Abi, functionName: "allowance", args: [address, vaultAddress], chainId: vaultChainId } : undefined,
+      vaultDeployed && vaultAddress ? { address: vaultAddress, abi: vaultAbi, functionName: "authorizedAgent", chainId: vaultChainId } : undefined,
+      vaultDeployed && vaultAddress ? { address: vaultAddress, abi: vaultAbi, functionName: "policy", chainId: vaultChainId } : undefined,
     ].filter(Boolean) as any,
   })
 
@@ -175,6 +183,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
 
   async function withTx(label: string, fn: () => Promise<`0x${string}`>) {
     if (!publicClient) throw new Error("Public client unavailable for this chain.")
+    await ensureChain()
     setBusyAction(label)
     setFlowPhase(label === "Create vault" ? "switching" : label === "Configure A3 policy" ? "confirming" : label === "Deposit to vault" ? "mining" : "preparing")
     setMessage(null)
@@ -206,6 +215,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
       abi: factoryAbi,
       functionName: "createVault",
       args: [agent, tokenAddresses, routerTargets],
+      chainId: vaultChainId,
     }))
   }
 
@@ -216,6 +226,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
       abi: erc20Abi,
       functionName: "approve",
       args: [vaultAddress, parsedDepositAmount],
+      chainId: vaultChainId,
     }))
   }
 
@@ -226,6 +237,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
       abi: vaultAbi,
       functionName: "deposit",
       args: [selectedToken.address, parsedDepositAmount],
+      chainId: vaultChainId,
     }))
   }
 
@@ -239,6 +251,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
       abi: vaultAbi,
       functionName: "configureAgent",
       args: [agent, nextPolicy],
+      chainId: vaultChainId,
     }))
   }
 
@@ -253,7 +266,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
         workflowId: `vault-autopilot-${address.slice(2, 10).toLowerCase()}-${Date.now()}`,
         merchantEns: "vault.counteragents.eth",
         walletAddress: address,
-        chainId,
+        chainId: vaultChainId,
         fromToken: workflowTokenFor(depositToken),
         toToken: workflowTokenFor(preferredStablecoin),
         amount: depositAmount,
@@ -274,7 +287,9 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
       })
       setWorkflow(response)
       setFlowPhase(response.decision?.decision?.action === "CONVERT" ? "success" : "confirming")
-      setMessage(response.execution?.transactionHash ? `A3 submitted vault execution: ${shortenAddress(response.execution.transactionHash)}` : `A3 completed autonomous cycle: ${response.execution?.status ?? response.status}`)
+      setMessage(response.execution?.transactionHash
+        ? `A3 submitted vault execution: ${shortenAddress(response.execution.transactionHash)}`
+        : `A3 evaluated the vault path: ${response.execution?.status ?? response.status}. No swap transaction was submitted.`)
       onCompleted?.()
     } catch (error) {
       setFlowPhase("error")
@@ -290,7 +305,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
         <div>
           <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Autopilot Vault</CardTitle>
           <p className="mt-1 max-w-3xl text-sm text-card-foreground">
-            Deposit once into a merchant-owned vault, configure bounded A3 policy, then the agent can execute profitable stablecoin trading without another wallet popup.
+            Create a merchant-owned Base Sepolia vault, deposit test stablecoins, configure bounded A3 policy, then let the agent evaluate vault-aware trading paths.
           </p>
         </div>
         <Badge variant="outline" className={readyForAutopilot ? "border-success/30 bg-success/10 text-success" : "border-primary/30 bg-background text-primary"}>
@@ -299,6 +314,15 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
       </CardHeader>
       <CardContent className="space-y-4 px-5 pb-5">
         <AgentInteractionFlow mode="vault-autopilot" phase={flowPhase} heightClassName="h-[260px] sm:h-[300px]" />
+
+        {!isCorrectChain && address && (
+          <div className="flex flex-col gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning-foreground sm:flex-row sm:items-center sm:justify-between">
+            <span>Vault actions run on {vaultChain.name}. Switch networks before creating, approving, depositing, or configuring policy.</span>
+            <Button type="button" variant="outline" size="sm" onClick={() => void ensureChain()} disabled={isSwitching || Boolean(busyAction)}>
+              {isSwitching ? <Loader2 className="animate-spin" /> : null} Switch to {vaultChain.name}
+            </Button>
+          </div>
+        )}
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-lg border bg-background/70 p-3">
@@ -334,32 +358,35 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
             </Select>
           </div>
           <div className="space-y-1">
-            <Label htmlFor="vault-deposit-amount">Amount for demo vault</Label>
+            <Label htmlFor="vault-deposit-amount">Amount to deposit</Label>
             <Input id="vault-deposit-amount" inputMode="decimal" value={depositAmount} onChange={(event) => setDepositAmount(event.target.value)} />
           </div>
           <div className="flex flex-wrap items-end gap-2">
-            <Button type="button" variant="outline" onClick={createVault} disabled={!address || !factoryAddress || vaultDeployed || Boolean(busyAction)}>
+            <Button type="button" variant="outline" onClick={createVault} disabled={!address || !factoryAddress || vaultDeployed || isSwitching || Boolean(busyAction)}>
               {busyAction === "Create vault" ? <Loader2 className="animate-spin" /> : <Vault />} Create vault
             </Button>
-            <Button type="button" variant="outline" onClick={approveDeposit} disabled={!vaultDeployed || !needsApproval || Boolean(busyAction)}>
+            <Button type="button" variant="outline" onClick={approveDeposit} disabled={!vaultDeployed || !needsApproval || isSwitching || Boolean(busyAction)}>
               {busyAction === "Approve vault deposit" ? <Loader2 className="animate-spin" /> : <CheckCircle2 />} Approve
             </Button>
-            <Button type="button" variant="outline" onClick={depositToVault} disabled={!vaultDeployed || needsApproval || parsedDepositAmount <= BigInt(0) || Boolean(busyAction)}>
+            <Button type="button" variant="outline" onClick={depositToVault} disabled={!vaultDeployed || needsApproval || parsedDepositAmount <= BigInt(0) || isSwitching || Boolean(busyAction)}>
               {busyAction === "Deposit to vault" ? <Loader2 className="animate-spin" /> : <WalletCards />} Deposit
             </Button>
-            <Button type="button" variant="outline" onClick={configurePolicy} disabled={!vaultDeployed || policyActive || Boolean(busyAction)}>
+            <Button type="button" variant="outline" onClick={configurePolicy} disabled={!vaultDeployed || policyActive || isSwitching || Boolean(busyAction)}>
               {busyAction === "Configure A3 policy" ? <Loader2 className="animate-spin" /> : <ShieldCheck />} Policy
             </Button>
-            <Button type="button" onClick={runAutonomousCycle} disabled={!address || Boolean(busyAction)}>
+            <Button type="button" onClick={runAutonomousCycle} disabled={!address || !readyForAutopilot || Boolean(busyAction)}>
               {busyAction === "Run autonomous A3 cycle" ? <Loader2 className="animate-spin" /> : <Bot />} Run A3 autopilot
             </Button>
+            {!readyForAutopilot && address && (
+              <p className="basis-full text-xs text-muted-foreground">Run unlocks after vault creation, token deposit, and active A3 policy.</p>
+            )}
           </div>
         </div>
 
         <div className="grid gap-3 text-xs sm:grid-cols-3">
-          <div className="rounded-lg bg-muted/40 p-3"><span className="font-semibold text-card-foreground">1. Deposit</span><br />Merchant signs vault setup/deposit only once.</div>
+          <div className="rounded-lg bg-muted/40 p-3"><span className="font-semibold text-card-foreground">1. Deposit</span><br />Merchant signs real vault setup, approval, and deposit transactions.</div>
           <div className="rounded-lg bg-muted/40 p-3"><span className="font-semibold text-card-foreground">2. Autonomous policy</span><br />A3 is bounded by max trade, daily limit, slippage, allowed tokens, and allowed targets.</div>
-          <div className="rounded-lg bg-muted/40 p-3"><span className="font-semibold text-card-foreground">3. Profit cycle</span><br />A0→A1→A2→A3→A4 can convert when spread beats threshold; no human confirmation in autopilot mode.</div>
+          <div className="rounded-lg bg-muted/40 p-3"><span className="font-semibold text-card-foreground">3. Vault cycle</span><br />A0→A1→A2→A3→A4 evaluates the vault path; A3 submits only when live router calldata is available.</div>
         </div>
 
         {message && <p className="rounded-lg border border-border bg-background/70 p-3 text-sm text-muted-foreground">{message}</p>}
@@ -375,12 +402,12 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
             </div>
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
               {workflow.decision?.decision?.reason ?? "A3 completed the vault-aware execution path."}
-              {workflow.execution?.transactionHash ? ` Tx: ${workflow.execution.transactionHash}` : " If backend A3 is in vault-live mode, this same path submits through the vault executor; dry-run modes keep demo funds safe."}
+              {workflow.execution?.transactionHash ? ` Tx: ${workflow.execution.transactionHash}` : " Current A3 mode validates the merchant vault and executeCall envelope without submitting a swap transaction unless live router calldata is available."}
             </p>
           </div>
         )}
 
-        {!factoryAddress && <p className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning-foreground">Vault factory is not configured for chain {chainId}. Switch to Base Sepolia for the demo path.</p>}
+        {!factoryAddress && <p className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning-foreground">Vault factory is not configured for chain {vaultChainId}. Switch to Base Sepolia for the demo path.</p>}
         <p className="text-xs text-muted-foreground">Allowed rails: {tokenSymbols ?? "Base + Celo stablecoins"}. Router targets: {routerTargets.length ? routerTargets.map(shortenAddress).join(" · ") : "configured by backend"}.</p>
       </CardContent>
     </Card>

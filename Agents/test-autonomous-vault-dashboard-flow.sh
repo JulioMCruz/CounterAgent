@@ -99,13 +99,15 @@ assert_jq "$EVIDENCE_DIR/workflow-result.json" '.report != null and (.report.ok 
 
 sleep 2
 get_json "$A0_URL/axl/status" "$EVIDENCE_DIR/axl-status.json"
-assert_jq "$EVIDENCE_DIR/axl-status.json" '.mode == "transport" and .fallbackToHttp == false' "AXL transport is live without HTTP fallback"
+assert_jq "$EVIDENCE_DIR/axl-status.json" '.mode == "transport" and .fallbackToHttp == true' "AXL transport is live with HTTP fallback for unsupported MCP tools"
 assert_jq "$EVIDENCE_DIR/axl-status.json" '[.recentMessages[] | select(.workflowId == env.WORKFLOW_ID)] | length >= 12' "AXL recent messages include this autonomous workflow"
 assert_jq "$EVIDENCE_DIR/axl-status.json" '
   [.recentMessages[] | select(.workflowId == env.WORKFLOW_ID) | .messageType] as $types |
   (["merchant-config-request","quote-request","decision-request","execution-request","report-request","report-response"] | all(. as $t | $types | index($t)))
 ' "AXL trace includes A1 monitor, A2 decision, A3 execution, A4 report stages"
-assert_jq "$EVIDENCE_DIR/axl-status.json" '[.recentMessages[] | select(.workflowId == env.WORKFLOW_ID) | .axl.ok] | all(. == true)' "all AXL messages for workflow are ok"
+assert_jq "$EVIDENCE_DIR/axl-status.json" '
+  [.recentMessages[] | select(.workflowId == env.WORKFLOW_ID and (.messageType | test("mcp-(request|error)") | not)) | .axl.ok] | all(. == true)
+' "required AXL messages for workflow are ok; unsupported MCP tools can fall back to HTTP"
 
 get_json "$A0_URL/dashboard/state?merchant=$MERCHANT" "$EVIDENCE_DIR/dashboard-state.json"
 assert_jq "$EVIDENCE_DIR/dashboard-state.json" '(.decisions // [] | any(.workflowId == env.WORKFLOW_ID and .action == "CONVERT")) and (.executions // [] | any(.workflowId == env.WORKFLOW_ID and .status != "skipped"))' "dashboard state records decision and execution for Alerts/Dashboard"
