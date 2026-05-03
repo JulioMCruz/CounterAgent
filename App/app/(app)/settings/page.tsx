@@ -1268,7 +1268,7 @@ export default function SettingsPage() {
       </main>
 
       <Dialog open={ensOpen} onOpenChange={setEnsOpen}>
-        <DialogContent className="w-[calc(100vw-0.75rem)] max-w-none sm:w-[calc(100vw-2rem)] xl:w-[1280px] 2xl:w-[1400px]">
+        <DialogContent className="w-[calc(100vw-0.75rem)] max-w-none sm:w-[calc(100vw-2rem)] xl:w-[min(96vw,1760px)] 2xl:w-[min(96vw,1880px)]">
           <DialogHeader className="rounded-2xl border border-border bg-card/80 p-4">
             <DialogTitle>ENS Config</DialogTitle>
             <DialogDescription>
