@@ -15,7 +15,7 @@ import {
 import { privateKeyToAccount } from 'viem/accounts';
 import { base, baseSepolia, celo, celoSepolia } from 'viem/chains';
 import { z } from 'zod';
-import { AxlClient, type AxlMode, type AxlSendResult } from './axl-client.js';
+import { AxlClient, type AxlMcpResult, type AxlMode, type AxlSendResult } from './axl-client.js';
 
 const merchantRegistryAbi = [
   {
@@ -395,7 +395,7 @@ type AxlTraceRecord = {
   createdAt: string;
   mode: AxlMode;
   adapter?: unknown;
-  axl?: AxlSendResult;
+  axl?: AxlSendResult | AxlMcpResult<unknown>;
 };
 const axlTrace: AxlTraceRecord[] = [];
 let axlSequence = 0;
@@ -403,6 +403,26 @@ let axlSequence = 0;
 function pushAxlTrace(record: AxlTraceRecord) {
   axlTrace.unshift(record);
   axlTrace.splice(axlTraceLimit);
+}
+
+function pushWorkflowAgentTrace(input: {
+  workflowId: string;
+  fromAgent: string;
+  toAgent: string;
+  messageType: string;
+  axl?: AxlSendResult | AxlMcpResult<unknown>;
+}) {
+  pushAxlTrace({
+    workflowId: input.workflowId,
+    messageId: randomUUID(),
+    sequence: ++axlSequence,
+    fromAgent: input.fromAgent,
+    toAgent: input.toAgent,
+    messageType: input.messageType,
+    createdAt: new Date().toISOString(),
+    mode: axlClient.mode,
+    axl: input.axl
+  });
 }
 
 app.get('/axl/status', async () => {
@@ -996,6 +1016,18 @@ app.post('/onboarding/start', async (request, reply) => {
   }
 
   try {
+    await emitAxlMessage({
+      workflowId: onboardingId,
+      fromAgent: 'A0-Orchestrator',
+      toAgent: 'A1-Monitor',
+      messageType: 'ens-provision-request',
+      payload: {
+        ensLabel,
+        ensName: onboarding.ensName ?? `${ensLabel}.${ensParentName}`,
+        walletAddress: onboarding.walletAddress
+      }
+    });
+
     const response = await fetch(`${monitorAgentUrl.replace(/\/$/, '')}/ens/provision`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -1011,6 +1043,18 @@ app.post('/onboarding/start', async (request, reply) => {
     });
 
     const ens = await response.json().catch(() => ({}));
+
+    await emitAxlMessage({
+      workflowId: onboardingId,
+      fromAgent: 'A1-Monitor',
+      toAgent: 'A0-Orchestrator',
+      messageType: 'ens-provision-response',
+      payload: {
+        ok: Boolean(response.ok && ens.ok),
+        status: response.status,
+        ensName: `${ensLabel}.${ensParentName}`
+      }
+    });
 
     if (!response.ok || !ens.ok) {
       request.log.error({ ens }, 'ENS provisioning rejected by Monitor');
@@ -1299,6 +1343,13 @@ async function callWorkflowAgent<T>(input: {
   httpMethod?: 'GET' | 'POST';
   workflowId: string;
 }) {
+  const agentLabel = {
+    A1: 'A1-Monitor',
+    A2: 'A2-Decision',
+    A3: 'A3-Uniswap-SwapExecution',
+    A4: 'A4-Reporting'
+  }[input.agent];
+
   if (axlClient.mode === 'transport') {
     const peerId = axlClient.peers[input.agent];
     const result = await axlClient.callMcp<T>({
@@ -1309,10 +1360,32 @@ async function callWorkflowAgent<T>(input: {
       id: `${input.workflowId}:${input.tool}`
     });
 
+    pushWorkflowAgentTrace({
+      workflowId: input.workflowId,
+      fromAgent: 'A0-Orchestrator',
+      toAgent: agentLabel,
+      messageType: `${input.tool}-mcp-request`,
+      axl: result
+    });
+
     if (result.ok && result.result) {
+      pushWorkflowAgentTrace({
+        workflowId: input.workflowId,
+        fromAgent: agentLabel,
+        toAgent: 'A0-Orchestrator',
+        messageType: `${input.tool}-mcp-response`,
+        axl: result
+      });
       return result.result;
     }
 
+    pushWorkflowAgentTrace({
+      workflowId: input.workflowId,
+      fromAgent: agentLabel,
+      toAgent: 'A0-Orchestrator',
+      messageType: `${input.tool}-mcp-error`,
+      axl: result
+    });
     app.log.warn({ result, agent: input.agent, tool: input.tool }, 'AXL transport unavailable for workflow agent');
     if (!axlFallbackToHttp) throw new Error(result.error ?? 'axl_transport_failed');
   }
