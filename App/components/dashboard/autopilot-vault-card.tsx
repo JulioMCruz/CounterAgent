@@ -30,6 +30,10 @@ const permit2Targets: Record<number, `0x${string}`> = {
   84532: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 }
 
+const defaultExecutionAgents: Record<number, `0x${string}`> = {
+  84532: "0xDaa23fF7820b92eA5D78457adc41Cab1af97EbbC",
+}
+
 const tokenDecimals: Partial<Record<SupportedStablecoin, number>> = {
   USDC: 6,
   EURC: 6,
@@ -126,6 +130,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
   const factoryAddress = factoryAddresses[vaultChainId]
   const routerTargets = defaultRouterTargets[vaultChainId] ?? []
   const permit2Target = permit2Targets[vaultChainId]
+  const defaultExecutionAgent = defaultExecutionAgents[vaultChainId]
   const preferredStablecoin = defaultOutputForChain(vaultChainId)
 
   useEffect(() => {
@@ -228,7 +233,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
     if (!factoryAddress || !vaultPlanQuery.data) return
     const tokenAddresses = vaultPlanQuery.data.vault.tokenAllowlist.map((token) => token.address)
     const initialTargets = Array.from(new Set([...routerTargets, ...tokenAddresses, permit2Target].filter(Boolean))) as `0x${string}`[]
-    const agent = vaultPlanQuery.data.vault.authorizedAgent
+    const agent = vaultPlanQuery.data.vault.authorizedAgent ?? defaultExecutionAgent
     if (!agent) {
       setMessage("A3 executor address is not configured in the vault plan.")
       return
@@ -250,7 +255,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
     }
     const tokenAddresses = vaultPlanQuery.data.vault.tokenAllowlist.map((token) => token.address)
     const initialTargets = Array.from(new Set([...routerTargets, ...tokenAddresses, permit2Target].filter(Boolean))) as `0x${string}`[]
-    const agent = vaultPlanQuery.data.vault.authorizedAgent
+    const agent = vaultPlanQuery.data.vault.authorizedAgent ?? defaultExecutionAgent
     const nextPolicy = policyFromPlan(vaultPlanQuery.data)
     if (!agent || !nextPolicy) {
       setMessage("A3 executor policy is not configured in the vault plan.")
@@ -374,7 +379,7 @@ export function AutopilotVaultCard({ onCompleted }: { onCompleted?: () => void }
   }
 
   async function configurePolicy() {
-    const agent = vaultPlanQuery.data?.vault.authorizedAgent
+    const agent = vaultPlanQuery.data?.vault.authorizedAgent ?? defaultExecutionAgent
     if (!vaultAddress || !agent) return
     const nextPolicy = policyFromPlan(vaultPlanQuery.data)
     if (!nextPolicy) return
