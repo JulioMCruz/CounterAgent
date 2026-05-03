@@ -1268,7 +1268,7 @@ export default function SettingsPage() {
       </main>
 
       <Dialog open={ensOpen} onOpenChange={setEnsOpen}>
-        <DialogContent className="max-h-[94dvh] w-[calc(100vw-0.5rem)] max-w-none overflow-hidden p-4 sm:w-[calc(100vw-1rem)] sm:p-6 lg:w-[98vw]">
+        <DialogContent className="max-h-[96dvh] !w-[98vw] !max-w-[98vw] overflow-hidden p-4 sm:p-6 2xl:!w-[2200px] 2xl:!max-w-[98vw]">
           <DialogHeader className="rounded-2xl border border-border bg-card/80 p-4">
             <DialogTitle>ENS Config</DialogTitle>
             <DialogDescription>
@@ -1276,7 +1276,7 @@ export default function SettingsPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-3 xl:grid-cols-[1.2fr_0.8fr]">
+          <div className="grid gap-3 xl:grid-cols-[1.45fr_0.55fr]">
             <AgentInteractionFlow
               mode="ens-profile-update"
               phase={ensSaveState}
@@ -1285,7 +1285,7 @@ export default function SettingsPage() {
             <SettingsAxlTerminal status={axlQuery.data} phase={ensSaveState} compact />
           </div>
 
-          <div className="grid max-h-[58vh] gap-4 overflow-y-auto py-2 pr-1 xl:max-h-[60vh]">
+          <div className="grid max-h-[58vh] gap-4 overflow-y-auto py-2 pr-1 xl:max-h-[60vh] xl:grid-cols-2 2xl:grid-cols-[1.15fr_0.85fr]">
             <Card>
               <CardContent className="grid gap-3 px-4 py-4 md:grid-cols-2">
                 <div className="md:col-span-2">
